@@ -1,0 +1,233 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { motion } from "framer-motion";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { toast } from "sonner";
+import {
+  ChevronRight,
+  Calendar,
+  User,
+  Flag,
+  Tag,
+  ArrowLeft,
+  Edit2,
+  Check,
+} from "lucide-react";
+import { formatDate, getInitials, priorityLabel, spring } from "@/lib/utils";
+import type { InferSelectModel } from "drizzle-orm";
+import type { tasks, taskStatuses, projects, profiles } from "@/db/schema";
+
+type Task = InferSelectModel<typeof tasks> & { status: InferSelectModel<typeof taskStatuses> | null };
+type Status = InferSelectModel<typeof taskStatuses>;
+type Project = InferSelectModel<typeof projects>;
+type Profile = InferSelectModel<typeof profiles>;
+type Member = { userId: string; role: string; profile: Profile | null };
+
+type Props = {
+  task: Task;
+  project: Project;
+  statuses: Status[];
+  members: Member[];
+  currentUserId: string;
+  workspaceSlug: string;
+};
+
+export default function TaskDetail({ task: initialTask, project, statuses, members, workspaceSlug }: Props) {
+  const [task, setTask] = useState(initialTask);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [title, setTitle] = useState(initialTask.title);
+  const [isPending, startTransition] = useTransition();
+  const router = useRouter();
+
+  const assignee = members.find((m) => m.userId === task.assigneeId);
+
+  const updateTask = async (updates: Partial<typeof task>) => {
+    setTask((prev) => ({ ...prev, ...updates }));
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/tasks/${task.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updates),
+        });
+        if (!res.ok) throw new Error("Error al actualizar");
+        const body = (await res.json()) as { task: typeof task };
+        setTask(body.task);
+        toast.success("Guardado");
+      } catch {
+        setTask(initialTask);
+        toast.error("Error al guardar");
+      }
+    });
+  };
+
+  const saveTitle = () => {
+    setEditingTitle(false);
+    if (title !== task.title) {
+      updateTask({ title });
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-6 py-3 border-b border-border flex-shrink-0">
+        <Link
+          href={`/app/${workspaceSlug}/projects/${project.id}/board`}
+          className="flex items-center gap-1 text-sm text-text-muted hover:text-text transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          {project.name}
+        </Link>
+        <ChevronRight className="w-4 h-4 text-text-subtle" />
+        <span className="text-sm text-text-subtle font-mono">{task.key}</span>
+      </div>
+
+      <div className="flex-1 overflow-auto">
+        <div className="max-w-4xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-8">
+          {/* Main content */}
+          <div>
+            {/* Title */}
+            <div className="mb-6">
+              {editingTitle ? (
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onBlur={saveTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") saveTitle();
+                    if (e.key === "Escape") {
+                      setTitle(task.title);
+                      setEditingTitle(false);
+                    }
+                  }}
+                  className="w-full text-2xl font-semibold tracking-tighter bg-transparent border-0 outline-none border-b-2 border-accent pb-1"
+                  autoFocus
+                />
+              ) : (
+                <div className="group flex items-start gap-2">
+                  <h1 className="text-2xl font-semibold tracking-tighter flex-1">
+                    {task.title}
+                  </h1>
+                  <button
+                    onClick={() => setEditingTitle(true)}
+                    className="opacity-0 group-hover:opacity-100 w-7 h-7 rounded flex items-center justify-center text-text-subtle hover:text-text hover:bg-surface-2 transition-all mt-1"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Description placeholder */}
+            <div className="min-h-32 p-4 rounded-xl border border-dashed border-border bg-surface text-text-subtle text-sm">
+              <p className="italic">
+                Agrega una descripción para dar más contexto al equipo...
+              </p>
+            </div>
+          </div>
+
+          {/* Properties rail */}
+          <motion.div
+            className="space-y-1"
+            initial={{ opacity: 0, x: 12 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+          >
+            <p className="text-xs font-medium text-text-subtle uppercase tracking-wider mb-3">
+              Propiedades
+            </p>
+
+            {/* Status */}
+            <div className="flex items-center gap-3 py-2 px-2 rounded-lg hover:bg-surface-2 transition-colors group">
+              <div className="w-4 h-4 rounded-full flex-shrink-0"
+                style={{ backgroundColor: task.status?.color ?? "#94a3b8" }}
+              />
+              <span className="text-xs text-text-muted w-20 flex-shrink-0">Estado</span>
+              <select
+                value={task.statusId ?? ""}
+                onChange={(e) => updateTask({ statusId: e.target.value || null })}
+                className="flex-1 text-sm bg-transparent outline-none"
+              >
+                <option value="">Sin estado</option>
+                {statuses.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Assignee */}
+            <div className="flex items-center gap-3 py-2 px-2 rounded-lg hover:bg-surface-2 transition-colors">
+              <User className="w-4 h-4 text-text-subtle flex-shrink-0" />
+              <span className="text-xs text-text-muted w-20 flex-shrink-0">Responsable</span>
+              <select
+                value={task.assigneeId ?? ""}
+                onChange={(e) => updateTask({ assigneeId: e.target.value || null })}
+                className="flex-1 text-sm bg-transparent outline-none"
+              >
+                <option value="">Sin asignar</option>
+                {members.map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {m.profile?.fullName ?? m.userId}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Priority */}
+            <div className="flex items-center gap-3 py-2 px-2 rounded-lg hover:bg-surface-2 transition-colors">
+              <Flag className="w-4 h-4 text-text-subtle flex-shrink-0" />
+              <span className="text-xs text-text-muted w-20 flex-shrink-0">Prioridad</span>
+              <select
+                value={task.priority}
+                onChange={(e) => updateTask({ priority: e.target.value as typeof task.priority })}
+                className="flex-1 text-sm bg-transparent outline-none"
+              >
+                <option value="no_priority">Sin prioridad</option>
+                <option value="low">Baja</option>
+                <option value="medium">Media</option>
+                <option value="high">Alta</option>
+                <option value="urgent">Urgente</option>
+              </select>
+            </div>
+
+            {/* Due date */}
+            <div className="flex items-center gap-3 py-2 px-2 rounded-lg hover:bg-surface-2 transition-colors">
+              <Calendar className="w-4 h-4 text-text-subtle flex-shrink-0" />
+              <span className="text-xs text-text-muted w-20 flex-shrink-0">Fecha límite</span>
+              <input
+                type="date"
+                value={task.dueDate ? new Date(task.dueDate).toISOString().split("T")[0] : ""}
+                onChange={(e) => updateTask({ dueDate: e.target.value ? new Date(e.target.value) : null })}
+                className="flex-1 text-sm bg-transparent outline-none"
+              />
+            </div>
+
+            {/* Key */}
+            <div className="flex items-center gap-3 py-2 px-2 rounded-lg">
+              <Tag className="w-4 h-4 text-text-subtle flex-shrink-0" />
+              <span className="text-xs text-text-muted w-20 flex-shrink-0">Clave</span>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(task.key);
+                  toast.success("Copiado");
+                }}
+                className="text-sm font-mono text-text-subtle hover:text-accent transition-colors"
+              >
+                {task.key}
+              </button>
+            </div>
+
+            <div className="pt-4 border-t border-border mt-4">
+              <p className="text-xs text-text-subtle">
+                Creado {formatDate(task.createdAt)}
+              </p>
+            </div>
+          </motion.div>
+        </div>
+      </div>
+    </div>
+  );
+}

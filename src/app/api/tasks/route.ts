@@ -1,0 +1,105 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { db } from "@/db";
+import { tasks, taskStatuses, projects, workspaceMembers } from "@/db/schema";
+import { eq, and, desc, isNull } from "drizzle-orm";
+import { generateKeyBetween } from "fractional-indexing";
+
+export async function GET(request: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { searchParams } = new URL(request.url);
+  const projectId = searchParams.get("projectId");
+  if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
+
+  const projectTasks = await db.query.tasks.findMany({
+    where: and(
+      eq(tasks.projectId, projectId),
+      isNull(tasks.archivedAt),
+      isNull(tasks.parentTaskId)
+    ),
+    with: {
+      status: true,
+    },
+    orderBy: [tasks.position],
+  });
+
+  return NextResponse.json({ tasks: projectTasks });
+}
+
+export async function POST(request: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = (await request.json()) as {
+    title: string;
+    projectId: string;
+    statusId?: string;
+    priority?: string;
+    assigneeId?: string;
+    dueDate?: string;
+    description?: string;
+    parentTaskId?: string;
+  };
+
+  if (!body.title || !body.projectId) {
+    return NextResponse.json({ error: "title and projectId required" }, { status: 400 });
+  }
+
+  // Get project to check workspace membership and generate key
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, body.projectId),
+  });
+
+  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+
+  // Check membership
+  const member = await db.query.workspaceMembers.findFirst({
+    where: and(
+      eq(workspaceMembers.workspaceId, project.workspaceId),
+      eq(workspaceMembers.userId, user.id)
+    ),
+  });
+
+  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  // Get count for key generation
+  const existingCount = await db.query.tasks.findMany({
+    where: eq(tasks.projectId, body.projectId),
+  });
+
+  const taskKey = `${project.key}-${existingCount.length + 1}`;
+
+  // Get default status if none provided
+  let statusId = body.statusId;
+  if (!statusId) {
+    const defaultStatus = await db.query.taskStatuses.findFirst({
+      where: eq(taskStatuses.projectId, body.projectId),
+      orderBy: [taskStatuses.position],
+    });
+    statusId = defaultStatus?.id;
+  }
+
+  const [task] = await db
+    .insert(tasks)
+    .values({
+      projectId: body.projectId,
+      workspaceId: project.workspaceId,
+      title: body.title,
+      key: taskKey,
+      statusId: statusId ?? null,
+      priority: (body.priority as "no_priority" | "low" | "medium" | "high" | "urgent") ?? "no_priority",
+      assigneeId: body.assigneeId ?? null,
+      dueDate: body.dueDate ? new Date(body.dueDate) : null,
+      description: body.description ?? null,
+      parentTaskId: body.parentTaskId ?? null,
+      createdBy: user.id,
+      position: generateKeyBetween(null, null),
+    })
+    .returning();
+
+  return NextResponse.json({ task });
+}
