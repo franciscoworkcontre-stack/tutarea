@@ -1,57 +1,80 @@
-# Deploy tutarea en 5 minutos
+# Deploy tutarea
 
-## Opción A — Vercel Web UI (más rápido)
+## Estado actual ✅
 
-1. Ir a **https://vercel.com/new**
-2. Click **"Import Git Repository"**
-3. Conectar GitHub y seleccionar `franciscoworkcontre-stack/tutarea`
-4. En "Environment Variables", agregar todas las vars del `.env.example`
-5. Click **Deploy** ✅
+| Componente | Estado |
+|-----------|--------|
+| Código en GitHub | ✅ `franciscoworkcontre-stack/tutarea` |
+| Supabase (proyecto) | ✅ `pljqzabbetilkrsjqhgt` — East US |
+| Migraciones aplicadas | ✅ schema + RLS policies |
+| Variables de entorno | ✅ listas en `.env.local` (no se commitean) |
 
----
-
-## Opción B — Vercel CLI
-
-```bash
-cd /private/tmp/tutarea
-vercel login
-vercel --prod
-```
-
----
-
-## Variables de entorno requeridas
-
-Todas están en `.env.example`. Las mínimas para que funcione:
+## Variables de entorno (ya configuradas)
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=       # Supabase → Settings → API
-NEXT_PUBLIC_SUPABASE_ANON_KEY=  # Supabase → Settings → API
-SUPABASE_SERVICE_ROLE_KEY=      # Supabase → Settings → API
-DATABASE_URL=                    # postgresql://postgres:[pass]@[host]:5432/postgres
-NEXT_PUBLIC_APP_URL=            # https://tu-app.vercel.app
-ANTHROPIC_API_KEY=              # https://console.anthropic.com
+NEXT_PUBLIC_SUPABASE_URL=https://pljqzabbetilkrsjqhgt.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...WJJhi2jmE_WjW8GOXF9SXeqAefRRIHe1UIpx9ZBwNFk
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...rGllYNxR1xWYUMp0bTr7GlFuSFrCqgfuZCTftgbd0Ek
+DATABASE_URL=postgresql://postgres.pljqzabbetilkrsjqhgt:TutareaDB2024!@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+ANTHROPIC_API_KEY=<tu clave de https://console.anthropic.com>
+NEXT_PUBLIC_APP_URL=https://tutarea.vercel.app  # cambiar tras deploy
 ```
 
 Opcionales para Telegram:
 ```
-TELEGRAM_BOT_TOKEN=             # @BotFather en Telegram
-TELEGRAM_WEBHOOK_SECRET=        # Cualquier string seguro
-TELEGRAM_BOT_USERNAME=          # Username del bot
-OPENAI_API_KEY=                 # Para Whisper (transcripción de voz)
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_WEBHOOK_SECRET=tutarea_webhook_secret_2024
+OPENAI_API_KEY=
 ```
 
 ---
 
-## Base de datos (Supabase)
+## Opción A — Vercel Web UI (recomendado, 3 pasos)
 
-1. Crear proyecto en **https://supabase.com**
-2. Ir a SQL Editor y ejecutar `src/db/migrations/0001_initial.sql`
-3. Ejecutar `src/db/policies.sql` para activar Row Level Security
-4. Copiar la URL y keys en las env vars
+1. Ir a **https://vercel.com/new**
+2. **Import Git Repository** → conectar GitHub → seleccionar `franciscoworkcontre-stack/tutarea`
+3. En **Environment Variables**, copiar las vars de arriba → **Deploy** ✅
+
+Vercel detecta Next.js automáticamente. No se necesita configuración adicional.
 
 ---
 
-## Código en GitHub
+## Opción B — CLI desde tu terminal (NO desde Claude Code)
 
-https://github.com/franciscoworkcontre-stack/tutarea
+El plugin de Vercel en Claude Code intercepta los comandos. Ejecutar desde terminal propio:
+
+```bash
+cd /private/tmp/tutarea
+
+# Login (una sola vez)
+vercel login
+
+# Deploy
+vercel --yes --name tutarea \
+  -e NEXT_PUBLIC_SUPABASE_URL="https://pljqzabbetilkrsjqhgt.supabase.co" \
+  -e NEXT_PUBLIC_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsanF6YWJiZXRpbGtyc2pxaGd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzOTYwMzgsImV4cCI6MjA5NDk3MjAzOH0.WJJhi2jmE_WjW8GOXF9SXeqAefRRIHe1UIpx9ZBwNFk" \
+  -e SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBsanF6YWJiZXRpbGtyc2pxaGd0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTM5NjAzOCwiZXhwIjoyMDk0OTcyMDM4fQ.rGllYNxR1xWYUMp0bTr7GlFuSFrCqgfuZCTftgbd0Ek" \
+  -e DATABASE_URL="postgresql://postgres.pljqzabbetilkrsjqhgt:TutareaDB2024!@aws-0-us-east-1.pooler.supabase.com:5432/postgres" \
+  -e ANTHROPIC_API_KEY="<tu-clave>" \
+  -e NEXT_PUBLIC_APP_URL="https://tutarea.vercel.app"
+```
+
+---
+
+## Opción C — GitHub Actions (CI/CD automático)
+
+El workflow `.github/workflows/deploy.yml` ya está configurado. Solo necesitas agregar 3 secrets en GitHub:
+
+1. Ir a `https://github.com/franciscoworkcontre-stack/tutarea/settings/secrets/actions`
+2. Agregar:
+   - `VERCEL_TOKEN` → obtener en https://vercel.com/account/tokens
+   - `VERCEL_ORG_ID` → desde `.vercel/project.json` tras hacer el primer deploy manual
+   - `VERCEL_PROJECT_ID` → desde `.vercel/project.json` tras hacer el primer deploy manual
+
+---
+
+## Tras el deploy
+
+1. Actualizar `NEXT_PUBLIC_APP_URL` con la URL real de Vercel
+2. Si usas Telegram: configurar el webhook en la ruta `/api/telegram/webhook`
+3. En Supabase → Authentication → URL Configuration: agregar la URL de Vercel como "Site URL"
