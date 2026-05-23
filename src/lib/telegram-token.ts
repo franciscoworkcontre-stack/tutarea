@@ -18,7 +18,9 @@ export function verifyTelegramLinkToken(token: string): { chatId: number } | nul
     const decoded = Buffer.from(token, "base64url").toString("utf8");
     const parts = decoded.split(":");
     if (parts.length !== 3) return null;
-    const [chatIdStr, expiresAtStr, hmac] = parts;
+    const chatIdStr = parts[0]!;
+    const expiresAtStr = parts[1]!;
+    const hmac = parts[2]!;
     const payload = `${chatIdStr}:${expiresAtStr}`;
     const expected = createHmac("sha256", secret()).update(payload).digest("hex").slice(0, 16);
     if (hmac !== expected) return null;
