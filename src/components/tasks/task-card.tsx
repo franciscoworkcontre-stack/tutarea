@@ -4,7 +4,8 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { cn, formatRelativeDate, priorityLabel, getInitials } from "@/lib/utils";
+import { cn, formatRelativeDate, getInitials } from "@/lib/utils";
+import { useNow } from "@/lib/hooks";
 import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar } from "lucide-react";
 import type { InferSelectModel } from "drizzle-orm";
 import type { tasks, profiles } from "@/db/schema";
@@ -23,39 +24,30 @@ type Props = {
 
 const PriorityIcon = ({ priority }: { priority: string }) => {
   switch (priority) {
-    case "urgent":
-      return <AlertCircle className="w-3.5 h-3.5 text-red-500" />;
-    case "high":
-      return <ArrowUp className="w-3.5 h-3.5 text-orange-500" />;
-    case "medium":
-      return <Minus className="w-3.5 h-3.5 text-yellow-500" />;
-    case "low":
-      return <ArrowDown className="w-3.5 h-3.5 text-blue-400" />;
-    default:
-      return null;
+    case "urgent": return <AlertCircle className="w-3.5 h-3.5 text-red-500" />;
+    case "high":   return <ArrowUp className="w-3.5 h-3.5 text-orange-500" />;
+    case "medium": return <Minus className="w-3.5 h-3.5 text-yellow-500" />;
+    case "low":    return <ArrowDown className="w-3.5 h-3.5 text-blue-400" />;
+    default:       return null;
   }
 };
 
 export default function TaskCard({ task, members, workspaceSlug, projectId, isDragging }: Props) {
   const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
+    attributes, listeners, setNodeRef, transform, transition,
     isDragging: isSortableDragging,
   } = useSortable({ id: task.id });
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
+  const now = useNow();
+
+  const style = { transform: CSS.Transform.toString(transform), transition };
 
   const assignee = members.find((m) => m.userId === task.assigneeId);
-  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
-  const isDueToday =
-    task.dueDate &&
-    new Date(task.dueDate).toDateString() === new Date().toDateString();
+  // Only compute after mount so server and client render the same HTML
+  const isOverdue  = now && task.dueDate ? new Date(task.dueDate) < now : false;
+  const isDueToday = now && task.dueDate
+    ? new Date(task.dueDate).toDateString() === now.toDateString()
+    : false;
 
   if (isSortableDragging && !isDragging) {
     return (
@@ -107,7 +99,7 @@ export default function TaskCard({ task, members, workspaceSlug, projectId, isDr
                 )}
               >
                 <Calendar className="w-3 h-3" />
-                {formatRelativeDate(task.dueDate)}
+                {formatRelativeDate(task.dueDate, "es-CL", now)}
               </div>
             )}
           </div>

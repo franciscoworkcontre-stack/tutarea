@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useNow } from "@/lib/hooks";
 import Link from "next/link";
 import { LayoutGrid, GanttChart, List, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
@@ -51,7 +52,8 @@ export default function GanttView({
   const tasksWithDates = initialTasks.filter((t) => t.startDate || t.dueDate);
   const tasksWithoutDates = initialTasks.filter((t) => !t.startDate && !t.dueDate);
 
-  const today = startOfDay(new Date());
+  const clientNow = useNow();
+  const today = clientNow ? startOfDay(clientNow) : startOfDay(new Date(0));
 
   const { rangeStart, totalDays } = useMemo(() => {
     if (tasksWithDates.length === 0) {
@@ -87,7 +89,7 @@ export default function GanttView({
     const left = daysBetween(rangeStart, barStart) * CELL_WIDTH;
     const width = Math.max((daysBetween(barStart, barEnd) + 1) * CELL_WIDTH, CELL_WIDTH);
     const status = task.statusId ? statusMap[task.statusId] : null;
-    const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && status?.type !== "done" && status?.type !== "cancelled";
+    const isOverdue = clientNow && task.dueDate && new Date(task.dueDate) < clientNow && status?.type !== "done" && status?.type !== "cancelled";
 
     return { left, width, color: isOverdue ? "#ef4444" : (status?.color ?? project.color) };
   };

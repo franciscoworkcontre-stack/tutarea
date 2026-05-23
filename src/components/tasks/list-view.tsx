@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useNow } from "@/lib/hooks";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, Check } from "lucide-react";
@@ -59,6 +60,7 @@ export default function ListView({
   const [newTitle, setNewTitle] = useState("");
   const [newAssigneeId, setNewAssigneeId] = useState<string | null>(null);
   const [completing, setCompleting] = useState<string | null>(null);
+  const now = useNow();
 
   const doneStatus = statuses.find((s) => s.type === "done");
   const defaultStatus = statuses.find((s) => s.type === "todo") ?? statuses[0];
@@ -191,7 +193,7 @@ export default function ListView({
                 {/* Tasks */}
                 {group.map((task, i) => {
                   const assignee = members.find((m) => m.userId === task.assigneeId);
-                  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
+                  const isOverdue = now && task.dueDate ? new Date(task.dueDate) < now : false;
 
                   const isDone = task.statusId === doneStatus?.id;
                   return (
@@ -259,7 +261,7 @@ export default function ListView({
                         {task.dueDate ? (
                           <div className={cn("flex items-center gap-1 text-xs", isOverdue ? "text-danger" : "text-text-muted")}>
                             <Calendar className="w-3 h-3" />
-                            {formatRelativeDate(task.dueDate)}
+                            {formatRelativeDate(task.dueDate, "es-CL", now)}
                           </div>
                         ) : (
                           <span className="text-xs text-text-subtle">—</span>

@@ -16,11 +16,12 @@ export function formatDate(date: Date | string | null, locale = "es-CL"): string
 
 export function formatRelativeDate(
   date: Date | string | null,
-  locale = "es-CL"
+  locale = "es-CL",
+  now?: Date | null
 ): string {
   if (!date) return "";
+  if (!now) return formatDate(typeof date === "string" ? new Date(date) : date, locale);
   const d = typeof date === "string" ? new Date(date) : date;
-  const now = new Date();
   const diff = d.getTime() - now.getTime();
   const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
 

@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { CheckSquare, Calendar, Flag } from "lucide-react";
 import { formatRelativeDate, priorityLabel } from "@/lib/utils";
+import { useNow } from "@/lib/hooks";
 import type { InferSelectModel } from "drizzle-orm";
 import type { tasks, taskStatuses } from "@/db/schema";
 
@@ -15,6 +16,7 @@ type Props = {
 };
 
 export default function MyTasksView({ tasks, workspaceSlug }: Props) {
+  const now = useNow();
   return (
     <div className="max-w-3xl mx-auto px-6 py-8">
       <motion.div
@@ -61,7 +63,7 @@ export default function MyTasksView({ tasks, workspaceSlug }: Props) {
                 {task.dueDate && (
                   <div className="flex items-center gap-1 text-xs text-text-muted">
                     <Calendar className="w-3 h-3" />
-                    {formatRelativeDate(task.dueDate)}
+                    {formatRelativeDate(task.dueDate, "es-CL", now)}
                   </div>
                 )}
                 {task.priority !== "no_priority" && (
