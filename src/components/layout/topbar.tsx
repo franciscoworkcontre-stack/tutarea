@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -23,7 +23,12 @@ export default function Topbar({ workspace, onCommandOpen, userId }: Props) {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const supabase = createClient();
+  const [mounted, setMounted] = useState(false);
+  const supabaseRef = useRef(createClient());
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const segments = pathname
     .replace(`/app/${workspace.slug}`, "")
@@ -31,12 +36,12 @@ export default function Topbar({ workspace, onCommandOpen, userId }: Props) {
     .filter(Boolean);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await supabaseRef.current.auth.signOut();
     window.location.href = "/login";
   };
 
   const themeIcons = { light: Sun, dark: Moon, system: Monitor };
-  const ThemeIcon = themeIcons[theme as keyof typeof themeIcons] ?? Monitor;
+  const ThemeIcon = mounted ? (themeIcons[theme as keyof typeof themeIcons] ?? Monitor) : Monitor;
 
   return (
     <header className="h-12 border-b border-border flex items-center px-4 gap-3 bg-background flex-shrink-0 relative z-10">
