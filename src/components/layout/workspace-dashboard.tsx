@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { greetingByTime, spring } from "@/lib/utils";
@@ -18,7 +19,11 @@ type Props = {
 
 export default function WorkspaceDashboard({ workspace, profile }: Props) {
   const name = profile?.fullName?.split(" ")[0] ?? "amigo";
-  const greeting = greetingByTime(name);
+  const [greeting, setGreeting] = useState(`Hola, ${name}.`);
+
+  useEffect(() => {
+    setGreeting(greetingByTime(name));
+  }, [name]);
 
   if (!workspace) return null;
 
