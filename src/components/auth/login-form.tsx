@@ -18,10 +18,11 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-export default function LoginForm() {
+export default function LoginForm({ next }: { next?: string }) {
   const [loading, setLoading] = useState(false);
   const [magicLinkSent, setMagicLinkSent] = useState(false);
   const supabase = createClient();
+  const redirectTo = next ?? "/app";
 
   const {
     register,
@@ -40,7 +41,7 @@ export default function LoginForm() {
         password: data.password,
       });
       if (error) throw error;
-      window.location.href = "/app";
+      window.location.href = redirectTo;
     } catch (err: unknown) {
       toast.error(
         err instanceof Error ? err.message : "Error al iniciar sesión"
@@ -61,7 +62,7 @@ export default function LoginForm() {
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
-          emailRedirectTo: `${window.location.origin}/app`,
+          emailRedirectTo: `${window.location.origin}${redirectTo}`,
         },
       });
       if (error) throw error;
@@ -80,7 +81,7 @@ export default function LoginForm() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/app`,
+        redirectTo: `${window.location.origin}${redirectTo}`,
       },
     });
   };
@@ -89,7 +90,7 @@ export default function LoginForm() {
     await supabase.auth.signInWithOAuth({
       provider: "github",
       options: {
-        redirectTo: `${window.location.origin}/app`,
+        redirectTo: `${window.location.origin}${redirectTo}`,
       },
     });
   };

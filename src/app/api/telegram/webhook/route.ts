@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { profiles, tasks, projects, workspaceMembers, taskStatuses, telegramInbox } from "@/db/schema";
+import { generateTelegramLinkToken } from "@/lib/telegram-token";
 import { eq, and, gt } from "drizzle-orm";
 import Anthropic from "@anthropic-ai/sdk";
 import { generateKeyBetween } from "fractional-indexing";
@@ -136,9 +137,18 @@ export async function POST(request: Request) {
   }
 
   if (!profile) {
+    const linkToken = generateTelegramLinkToken(chatId);
+    const appUrl = process.env["NEXT_PUBLIC_APP_URL"] ?? "https://tutarea-vert.vercel.app";
+    const linkUrl = `${appUrl}/auth/telegram?token=${linkToken}`;
+
     await sendTelegramMessage(
       chatId,
-      "👋 Hola! Para usar tutarea desde Telegram, primero vincula tu cuenta desde *Configuración → Telegram* en la app."
+      "👋 ¡Hola! Soy el bot de *tutarea*.\n\nPara crear tareas desde aquí, necesito vincular este chat con tu cuenta. Es solo una vez. 👇",
+      {
+        inline_keyboard: [[
+          { text: "🔐 Vincular mi cuenta", url: linkUrl },
+        ]],
+      }
     );
     return NextResponse.json({ ok: true });
   }

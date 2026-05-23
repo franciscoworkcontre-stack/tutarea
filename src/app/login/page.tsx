@@ -7,7 +7,14 @@ export const metadata: Metadata = {
   title: "Iniciar sesión",
 };
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+  const isTelegramLink = next?.includes("/auth/telegram");
+
   return (
     <div className="min-h-screen flex">
       <div className="flex-1 flex items-center justify-center p-8">
@@ -20,13 +27,15 @@ export default function LoginPage() {
               <span className="font-semibold tracking-tighter text-lg">tutarea</span>
             </div>
             <h1 className="text-2xl font-semibold tracking-tighter mb-1">
-              Bienvenido de vuelta
+              {isTelegramLink ? "Vincula tu Telegram" : "Bienvenido de vuelta"}
             </h1>
             <p className="text-text-muted text-sm">
-              Inicia sesión en tu workspace.
+              {isTelegramLink
+                ? "Inicia sesión para conectar tu cuenta de Telegram."
+                : "Inicia sesión en tu workspace."}
             </p>
           </div>
-          <LoginForm />
+          <LoginForm next={next} />
         </div>
       </div>
       <div className="hidden lg:flex flex-1 bg-surface border-l border-border items-center justify-center p-12">
