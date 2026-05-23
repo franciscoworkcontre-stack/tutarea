@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, User } from "lucide-react";
+import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, Check } from "lucide-react";
 import { cn, formatRelativeDate, getInitials } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
 import type { tasks, taskStatuses, projects, profiles } from "@/db/schema";
@@ -55,14 +55,42 @@ export default function ListView({
   workspaceSlug,
 }: Props) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  const [adding, setAdding] = useState<string | null>(null); // statusId being added to
+  const [adding, setAdding] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newAssigneeId, setNewAssigneeId] = useState<string | null>(null);
+  const [completing, setCompleting] = useState<string | null>(null);
+
+  const doneStatus = statuses.find((s) => s.type === "done");
+  const defaultStatus = statuses.find((s) => s.type === "todo") ?? statuses[0];
 
   const tasksByStatus = statuses.map((s) => ({
     status: s,
     tasks: tasks.filter((t) => t.statusId === s.id).sort((a, b) => a.position.localeCompare(b.position)),
   }));
+
+  const toggleDone = async (task: Task) => {
+    if (!doneStatus) { toast.error("Este proyecto no tiene un estado 'Hecho'"); return; }
+    const isDone = task.statusId === doneStatus.id;
+    const nextStatusId = isDone ? (defaultStatus?.id ?? task.statusId) : doneStatus.id;
+
+    setCompleting(task.id);
+    setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, statusId: nextStatusId } : t));
+
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statusId: nextStatusId }),
+      });
+      if (!res.ok) throw new Error();
+      if (!isDone) toast.success(`✓ ${task.title}`);
+    } catch {
+      setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, statusId: task.statusId } : t));
+      toast.error("Error al actualizar tarea");
+    } finally {
+      setCompleting(null);
+    }
+  };
 
   const handleAddTask = async (statusId: string) => {
     if (!newTitle.trim()) { setAdding(null); return; }
@@ -137,7 +165,8 @@ export default function ListView({
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="border-b border-border bg-surface/50 sticky top-0 z-10">
-              <th className="text-left px-4 py-2.5 text-xs font-medium text-text-subtle w-8"></th>
+              <th className="px-4 py-2.5 w-10"></th>
+              <th className="text-left px-2 py-2.5 text-xs font-medium text-text-subtle w-8"></th>
               <th className="text-left px-2 py-2.5 text-xs font-medium text-text-subtle w-24">Clave</th>
               <th className="text-left px-2 py-2.5 text-xs font-medium text-text-subtle">Título</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-text-subtle w-36">Estado</th>
@@ -150,7 +179,7 @@ export default function ListView({
               <>
                 {/* Status group header */}
                 <tr key={`group-${status.id}`} className="border-b border-border/50 bg-surface/30">
-                  <td colSpan={6} className="px-4 py-2">
+                  <td colSpan={7} className="px-4 py-2">
                     <div className="flex items-center gap-2">
                       <div className="w-2 h-2 rounded-full" style={{ backgroundColor: status.color }} />
                       <span className="text-xs font-medium text-text-muted">{status.name}</span>
@@ -164,15 +193,35 @@ export default function ListView({
                   const assignee = members.find((m) => m.userId === task.assigneeId);
                   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
 
+                  const isDone = task.statusId === doneStatus?.id;
                   return (
                     <motion.tr
                       key={task.id}
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       transition={{ delay: i * 0.02 }}
-                      className="border-b border-border/30 hover:bg-surface/50 transition-colors group"
+                      className={cn(
+                        "border-b border-border/30 hover:bg-surface/50 transition-colors group",
+                        isDone && "opacity-50"
+                      )}
                     >
-                      <td className="px-4 py-2.5">
+                      <td className="px-4 py-2.5 text-center">
+                        <button
+                          onClick={() => toggleDone(task)}
+                          disabled={completing === task.id || !doneStatus}
+                          title={isDone ? "Marcar como pendiente" : "Completar tarea"}
+                          className={cn(
+                            "w-4.5 h-4.5 rounded-full border-2 flex items-center justify-center transition-all mx-auto",
+                            isDone
+                              ? "bg-success border-success text-white"
+                              : "border-border hover:border-success hover:bg-success/10",
+                            completing === task.id && "opacity-40 cursor-not-allowed"
+                          )}
+                        >
+                          {isDone && <Check className="w-2.5 h-2.5" strokeWidth={3} />}
+                        </button>
+                      </td>
+                      <td className="px-2 py-2.5">
                         <PriorityIcon priority={task.priority} />
                       </td>
                       <td className="px-2 py-2.5">
@@ -181,7 +230,7 @@ export default function ListView({
                       <td className="px-2 py-2.5">
                         <Link
                           href={`/app/${workspaceSlug}/projects/${project.id}/tasks/${task.id}`}
-                          className="hover:text-accent transition-colors line-clamp-1"
+                          className={cn("hover:text-accent transition-colors line-clamp-1", isDone && "line-through text-text-muted")}
                         >
                           {task.title}
                         </Link>
@@ -223,7 +272,7 @@ export default function ListView({
                 {/* Add task row */}
                 <tr key={`add-${status.id}`} className="border-b border-border/20">
                   {adding === status.id ? (
-                    <td colSpan={6} className="px-4 py-2">
+                    <td colSpan={7} className="px-4 py-2">
                       <div className="flex items-center gap-2">
                         <input
                           autoFocus
@@ -254,7 +303,7 @@ export default function ListView({
                       </div>
                     </td>
                   ) : (
-                    <td colSpan={6} className="px-4 py-1.5">
+                    <td colSpan={7} className="px-4 py-1.5">
                       <button
                         onClick={() => setAdding(status.id)}
                         className="flex items-center gap-1.5 text-xs text-text-subtle hover:text-text-muted transition-colors"
