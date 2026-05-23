@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Plus, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import TaskCard from "./task-card";
+import AssigneePicker from "@/components/shared/assignee-picker";
 import type { InferSelectModel } from "drizzle-orm";
 import type { tasks, taskStatuses, profiles } from "@/db/schema";
 
@@ -18,7 +19,7 @@ type Props = {
   status: Status;
   tasks: Task[];
   members: Member[];
-  onAddTask: (statusId: string, title: string) => void;
+  onAddTask: (statusId: string, title: string, assigneeId?: string | null) => void;
   workspaceSlug: string;
   projectId: string;
 };
@@ -33,20 +34,20 @@ export default function BoardColumn({
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [newAssigneeId, setNewAssigneeId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { setNodeRef, isOver } = useDroppable({ id: status.id });
 
   useEffect(() => {
-    if (adding) {
-      inputRef.current?.focus();
-    }
+    if (adding) inputRef.current?.focus();
   }, [adding]);
 
   const handleAdd = () => {
     if (newTitle.trim()) {
-      onAddTask(status.id, newTitle.trim());
+      onAddTask(status.id, newTitle.trim(), newAssigneeId);
       setNewTitle("");
+      setNewAssigneeId(null);
     }
     setAdding(false);
   };
@@ -55,6 +56,7 @@ export default function BoardColumn({
     if (e.key === "Enter") handleAdd();
     if (e.key === "Escape") {
       setNewTitle("");
+      setNewAssigneeId(null);
       setAdding(false);
     }
   };
@@ -64,19 +66,14 @@ export default function BoardColumn({
       ref={setNodeRef}
       className={cn(
         "flex flex-col w-72 rounded-xl border transition-colors",
-        isOver
-          ? "border-accent/40 bg-accent/5"
-          : "border-border bg-surface"
+        isOver ? "border-accent/40 bg-accent/5" : "border-border bg-surface"
       )}
       style={{ height: "calc(100vh - 160px)" }}
     >
       {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border flex-shrink-0">
         <div className="flex items-center gap-2">
-          <div
-            className="w-2.5 h-2.5 rounded-full"
-            style={{ backgroundColor: status.color }}
-          />
+          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: status.color }} />
           <span className="text-sm font-medium">{status.name}</span>
           <span className="text-xs text-text-subtle bg-surface-2 px-1.5 py-0.5 rounded-full border border-border">
             {tasks.length}
@@ -96,11 +93,7 @@ export default function BoardColumn({
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              transition={{
-                delay: i * 0.035,
-                duration: 0.2,
-                ease: [0.32, 0.72, 0, 1],
-              }}
+              transition={{ delay: i * 0.035, duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
             >
               <TaskCard
                 task={task}
@@ -118,7 +111,6 @@ export default function BoardColumn({
           </div>
         )}
 
-        {/* Inline add */}
         <AnimatePresence>
           {adding && (
             <motion.div
@@ -133,10 +125,19 @@ export default function BoardColumn({
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  onBlur={handleAdd}
                   placeholder="Título de la tarea..."
                   className="w-full text-sm bg-transparent outline-none placeholder:text-text-subtle"
                 />
+                {members.length > 0 && (
+                  <div className="mt-2">
+                    <AssigneePicker
+                      members={members}
+                      value={newAssigneeId}
+                      onChange={setNewAssigneeId}
+                      size="sm"
+                    />
+                  </div>
+                )}
                 <div className="flex gap-1.5 mt-2">
                   <button
                     onClick={handleAdd}
@@ -145,10 +146,7 @@ export default function BoardColumn({
                     Agregar
                   </button>
                   <button
-                    onClick={() => {
-                      setNewTitle("");
-                      setAdding(false);
-                    }}
+                    onClick={() => { setNewTitle(""); setNewAssigneeId(null); setAdding(false); }}
                     className="text-xs px-2 py-1 text-text-muted hover:text-text"
                   >
                     Cancelar

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   DndContext,
@@ -17,9 +17,10 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { LayoutGrid, List, GanttChart } from "lucide-react";
 import { generateKeyBetween } from "fractional-indexing";
-import { spring } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import Link from "next/link";
 import BoardColumn from "./board-column";
 import TaskCard from "./task-card";
 import type { InferSelectModel } from "drizzle-orm";
@@ -156,7 +157,7 @@ export default function BoardView({
     });
   };
 
-  const handleAddTask = async (statusId: string, title: string) => {
+  const handleAddTask = async (statusId: string, title: string, assigneeId?: string | null) => {
     const columnTasks = getTasksByStatus(statusId);
     const lastTask = columnTasks[columnTasks.length - 1];
     const position = generateKeyBetween(lastTask?.position ?? null, null);
@@ -172,7 +173,7 @@ export default function BoardView({
       statusId,
       priority: "no_priority",
       position,
-      assigneeId: null,
+      assigneeId: assigneeId ?? null,
       reporterId: null,
       parentTaskId: null,
       description: null,
@@ -195,6 +196,7 @@ export default function BoardView({
           title,
           projectId: project.id,
           statusId,
+          assigneeId: assigneeId ?? undefined,
         }),
       });
       if (!res.ok) throw new Error("Error al crear tarea");
@@ -224,8 +226,26 @@ export default function BoardView({
             {project.key}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-text-subtle">{tasks.length} tareas</span>
+        <div className="flex items-center gap-1">
+          {[
+            { href: "board", icon: LayoutGrid, label: "Kanban" },
+            { href: "list", icon: List, label: "Lista" },
+            { href: "gantt", icon: GanttChart, label: "Gantt" },
+          ].map(({ href, icon: Icon, label }) => (
+            <Link
+              key={href}
+              href={`/app/${workspaceSlug}/projects/${project.id}/${href}`}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs transition-colors",
+                href === "board"
+                  ? "bg-accent/10 text-accent font-medium"
+                  : "text-text-muted hover:text-text hover:bg-surface-2"
+              )}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {label}
+            </Link>
+          ))}
         </div>
       </div>
 

@@ -5,11 +5,14 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { X, Loader2 } from "lucide-react";
 import { spring } from "@/lib/utils";
+import AssigneePicker from "@/components/shared/assignee-picker";
 import type { InferSelectModel } from "drizzle-orm";
-import type { workspaces, projects } from "@/db/schema";
+import type { workspaces, projects, profiles } from "@/db/schema";
 
 type Workspace = InferSelectModel<typeof workspaces>;
 type Project = InferSelectModel<typeof projects>;
+type Profile = InferSelectModel<typeof profiles>;
+type Member = { userId: string; role: string; profile: Profile | null };
 
 type Props = {
   workspace: Workspace;
@@ -20,12 +23,18 @@ type Props = {
 export default function QuickAddTask({ workspace, projects, onClose }: Props) {
   const [title, setTitle] = useState("");
   const [selectedProject, setSelectedProject] = useState(projects[0]?.id ?? "");
+  const [assigneeId, setAssigneeId] = useState<string | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
-  }, []);
+    fetch(`/api/workspaces/${workspace.id}/members`)
+      .then((r) => r.json())
+      .then((d: { members: Member[] }) => setMembers(d.members ?? []))
+      .catch(() => {});
+  }, [workspace.id]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -36,7 +45,11 @@ export default function QuickAddTask({ workspace, projects, onClose }: Props) {
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), projectId: selectedProject }),
+        body: JSON.stringify({
+          title: title.trim(),
+          projectId: selectedProject,
+          assigneeId: assigneeId ?? undefined,
+        }),
       });
       if (!res.ok) throw new Error("Error al crear tarea");
       const body = (await res.json()) as { task: { key: string } };
@@ -84,36 +97,36 @@ export default function QuickAddTask({ workspace, projects, onClose }: Props) {
               </button>
             </div>
 
-            <div className="border-t border-border px-4 py-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <select
-                  value={selectedProject}
-                  onChange={(e) => setSelectedProject(e.target.value)}
-                  className="text-xs text-text-muted bg-surface-2 border border-border rounded-lg px-2 py-1.5 outline-none focus:border-accent"
-                >
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.key}: {p.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            <div className="border-t border-border px-4 py-2.5 flex items-center gap-2 flex-wrap">
+              <select
+                value={selectedProject}
+                onChange={(e) => setSelectedProject(e.target.value)}
+                className="text-xs text-text-muted bg-surface-2 border border-border rounded-lg px-2 py-1.5 outline-none focus:border-accent"
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.key}: {p.name}
+                  </option>
+                ))}
+              </select>
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-text-subtle">
-                  <kbd className="font-mono">⌘↵</kbd> para abrir
-                </span>
+              {members.length > 0 && (
+                <AssigneePicker
+                  members={members}
+                  value={assigneeId}
+                  onChange={setAssigneeId}
+                  size="sm"
+                />
+              )}
+
+              <div className="flex items-center gap-2 ml-auto">
                 <motion.button
                   type="submit"
                   disabled={loading || !title.trim()}
                   className="px-3 py-1.5 bg-accent text-accent-fg rounded-lg text-xs font-medium hover:bg-accent/90 transition-colors disabled:opacity-50 flex items-center gap-1.5"
                   whileTap={{ scale: 0.97 }}
                 >
-                  {loading ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    "Crear"
-                  )}
+                  {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : "Crear"}
                 </motion.button>
               </div>
             </div>
