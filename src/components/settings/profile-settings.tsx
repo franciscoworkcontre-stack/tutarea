@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -29,14 +29,20 @@ type Props = {
 export default function ProfileSettings({ profile, userEmail }: Props) {
   const [loading, setLoading] = useState(false);
 
-  const { register, handleSubmit, formState: { errors, isDirty } } = useForm<FormValues>({
+  const { register, handleSubmit, formState: { errors, isDirty }, setValue } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       fullName: profile?.fullName ?? "",
-      timezone: profile?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timezone: profile?.timezone ?? "UTC",
       locale: profile?.locale ?? "es-CL",
     },
   });
+
+  useEffect(() => {
+    if (!profile?.timezone) {
+      setValue("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
+    }
+  }, [profile?.timezone, setValue]);
 
   const onSubmit = async (data: FormValues) => {
     setLoading(true);
