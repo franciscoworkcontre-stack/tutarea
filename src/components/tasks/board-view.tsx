@@ -267,29 +267,23 @@ export default function BoardView({
           onDragEnd={handleDragEnd}
         >
           <div className="flex gap-4 p-6 h-full min-w-max">
-            {statuses.map((status, i) => {
+            {statuses.map((status) => {
               const columnTasks = getTasksByStatus(status.id);
               return (
-                <motion.div
+                <SortableContext
                   key={status.id}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05, duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+                  items={columnTasks.map((t) => t.id)}
+                  strategy={verticalListSortingStrategy}
                 >
-                  <SortableContext
-                    items={columnTasks.map((t) => t.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <BoardColumn
-                      status={status}
-                      tasks={columnTasks}
-                      members={members}
-                      onAddTask={handleAddTask}
-                      workspaceSlug={workspaceSlug}
-                      projectId={project.id}
-                    />
-                  </SortableContext>
-                </motion.div>
+                  <BoardColumn
+                    status={status}
+                    tasks={columnTasks}
+                    members={members}
+                    onAddTask={handleAddTask}
+                    workspaceSlug={workspaceSlug}
+                    projectId={project.id}
+                  />
+                </SortableContext>
               );
             })}
 
