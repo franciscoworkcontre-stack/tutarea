@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   DndContext,
@@ -54,9 +54,12 @@ export default function BoardView({
   currentUserId,
   workspaceSlug,
 }: Props) {
+  const [mounted, setMounted] = useState(false);
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => setMounted(true), []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -251,7 +254,13 @@ export default function BoardView({
 
       {/* Board */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden">
-        <DndContext
+        {!mounted ? (
+          <div className="flex gap-4 p-6 h-full min-w-max">
+            {statuses.map((status) => (
+              <div key={status.id} className="w-72 flex-shrink-0 rounded-xl border border-border bg-surface/50 h-32 animate-pulse" />
+            ))}
+          </div>
+        ) : <DndContext
           sensors={sensors}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
@@ -308,7 +317,7 @@ export default function BoardView({
               </motion.div>
             ) : null}
           </DragOverlay>
-        </DndContext>
+        </DndContext>}
       </div>
     </div>
   );
