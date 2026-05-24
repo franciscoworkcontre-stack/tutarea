@@ -431,6 +431,20 @@ export const telegramInbox = pgTable("telegram_inbox", {
     .defaultNow(),
 });
 
+// Telegram Group Links
+export const workspaceTelegramGroups = pgTable("workspace_telegram_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  chatId: text("chat_id").notNull().unique(),
+  chatTitle: text("chat_title"),
+  linkedBy: uuid("linked_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // Audit Log
 export const auditLog = pgTable("audit_log", {
   id: uuid("id").primaryKey().defaultRandom(),
