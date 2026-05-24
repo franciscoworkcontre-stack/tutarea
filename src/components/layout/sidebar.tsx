@@ -155,11 +155,7 @@ export default function Sidebar({
               )}
             >
               {isActive(href, exact) && (
-                <motion.div
-                  layoutId="nav-active"
-                  className="absolute inset-0 bg-accent/10 rounded-lg"
-                  transition={spring}
-                />
+                <div className="absolute inset-0 bg-accent/10 rounded-lg" />
               )}
               <Icon className="w-4 h-4 flex-shrink-0 relative z-10" />
               <span className="relative z-10">{label}</span>
@@ -191,7 +187,7 @@ export default function Sidebar({
               </div>
             </button>
 
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {projectsOpen && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
@@ -275,7 +271,7 @@ export default function Sidebar({
         </div>
       </motion.aside>
 
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {newProjectOpen && (
           <NewProjectDialog
             workspaceId={workspace.id}

@@ -3,7 +3,6 @@
 import { useState, Fragment } from "react";
 import { useNow } from "@/lib/hooks";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, Check } from "lucide-react";
 import { cn, formatRelativeDate, getInitials } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
@@ -197,11 +196,8 @@ export default function ListView({
 
                   const isDone = task.statusId === doneStatus?.id;
                   return (
-                    <motion.tr
+                    <tr
                       key={task.id}
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ delay: i * 0.02 }}
                       className={cn(
                         "border-b border-border/30 hover:bg-surface/50 transition-colors group",
                         isDone && "opacity-50"
@@ -267,7 +263,7 @@ export default function ListView({
                           <span className="text-xs text-text-subtle">—</span>
                         )}
                       </td>
-                    </motion.tr>
+                    </tr>
                   );
                 })}
 

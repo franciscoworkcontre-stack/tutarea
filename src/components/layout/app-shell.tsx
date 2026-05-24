@@ -97,7 +97,7 @@ export default function AppShell({
         </main>
       </div>
 
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {commandOpen && (
           <CommandPalette
             workspace={workspace}
@@ -107,7 +107,7 @@ export default function AppShell({
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {quickAddOpen && (
           <QuickAddTask
             workspace={workspace}

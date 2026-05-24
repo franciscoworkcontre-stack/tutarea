@@ -111,7 +111,7 @@ export default function BoardColumn({
           </div>
         )}
 
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {adding && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
