@@ -82,7 +82,7 @@ export default function AppShell({
         />
 
         <main className="flex-1 overflow-auto">
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={pathname}
               initial={{ opacity: 0, y: 6 }}

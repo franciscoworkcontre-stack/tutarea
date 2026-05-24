@@ -30,10 +30,9 @@ export default function Topbar({ workspace, onCommandOpen, userId }: Props) {
     setMounted(true);
   }, []);
 
-  const segments = pathname
-    .replace(`/app/${workspace.slug}`, "")
-    .split("/")
-    .filter(Boolean);
+  const segments = mounted
+    ? pathname.replace(`/app/${workspace.slug}`, "").split("/").filter(Boolean)
+    : [];
 
   const signOut = async () => {
     await supabaseRef.current.auth.signOut();
