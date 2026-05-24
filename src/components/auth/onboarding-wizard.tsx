@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -43,10 +43,15 @@ export default function OnboardingWizard({ user }: Props) {
     defaultValues: {
       fullName:
         (user.user_metadata?.["full_name"] as string | undefined) ?? "",
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timezone: "UTC",
       locale: "es-CL",
     },
   });
+
+  useEffect(() => {
+    profileForm.setValue("timezone", Intl.DateTimeFormat().resolvedOptions().timeZone);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const workspaceForm = useForm<WorkspaceValues>({
     resolver: zodResolver(workspaceSchema),

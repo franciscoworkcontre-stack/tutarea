@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import { useNow } from "@/lib/hooks";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -178,7 +178,7 @@ export default function ListView({
           </thead>
           <tbody>
             {tasksByStatus.map(({ status, tasks: group }) => (
-              <>
+              <Fragment key={status.id}>
                 {/* Status group header */}
                 <tr key={`group-${status.id}`} className="border-b border-border/50 bg-surface/30">
                   <td colSpan={7} className="px-4 py-2">
@@ -316,7 +316,7 @@ export default function ListView({
                     </td>
                   )}
                 </tr>
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>
