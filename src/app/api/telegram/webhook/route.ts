@@ -102,22 +102,6 @@ async function handleGroupMessage(message: NonNullable<TelegramUpdate["message"]
       return;
     }
 
-    // Find sender's profile (must be a tutarea user)
-    if (!senderTelegramId) {
-      await sendTelegramMessage(chatId, "❌ No pude identificar al remitente.");
-      return;
-    }
-
-    const senderProfile = await db.query.profiles.findFirst({
-      where: eq(profiles.telegramChatId, senderTelegramId),
-    });
-
-    if (!senderProfile) {
-      await sendTelegramMessage(chatId, "❌ Debes vincular tu cuenta personal primero desde la app de tutarea.");
-      return;
-    }
-
-    // Find workspace by slug
     const workspace = await db.query.workspaces.findFirst({
       where: eq(workspaces.slug, slug),
     });
@@ -127,36 +111,21 @@ async function handleGroupMessage(message: NonNullable<TelegramUpdate["message"]
       return;
     }
 
-    // Verify sender is member of that workspace
-    const membership = await db.query.workspaceMembers.findFirst({
-      where: and(
-        eq(workspaceMembers.workspaceId, workspace.id),
-        eq(workspaceMembers.userId, senderProfile.id),
-      ),
-    });
-
-    if (!membership) {
-      await sendTelegramMessage(chatId, "❌ No eres miembro del workspace *" + slug + "*.");
-      return;
-    }
-
-    // Upsert group link
     await db
       .insert(workspaceTelegramGroups)
       .values({
         workspaceId: workspace.id,
         chatId: chatId.toString(),
         chatTitle,
-        linkedBy: senderProfile.id,
       })
       .onConflictDoUpdate({
         target: workspaceTelegramGroups.chatId,
-        set: { workspaceId: workspace.id, chatTitle, linkedBy: senderProfile.id },
+        set: { workspaceId: workspace.id, chatTitle },
       });
 
     await sendTelegramMessage(
       chatId,
-      `✅ Grupo vinculado a *${workspace.name}*\n\nA las 9 AM recibirán el resumen diario de tareas del equipo.`,
+      `✅ Grupo vinculado a *${workspace.name}*\n\nDe lunes a viernes a las 9 AM recibirán el resumen diario de tareas del equipo.`,
     );
     return;
   }
