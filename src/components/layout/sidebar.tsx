@@ -25,7 +25,12 @@ import {
   Target,
   Workflow,
   ClipboardList,
+  MoreHorizontal,
+  Trash2,
+  Archive,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { cn, spring } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
 import type { workspaces, projects } from "@/db/schema";
@@ -58,6 +63,11 @@ export default function Sidebar({
   const [projectsOpen, setProjectsOpen] = useState(true);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [projectMenuOpen, setProjectMenuOpen] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+  const [deleteInput, setDeleteInput] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -218,25 +228,69 @@ export default function Sidebar({
                     ];
                     return (
                       <div key={project.id}>
-                        <Link
-                          href={`${href}/board`}
-                          className={cn(
-                            "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors",
-                            active
-                              ? "bg-accent/10 text-accent font-medium"
-                              : "text-text-muted hover:bg-surface-2 hover:text-text"
-                          )}
-                        >
-                          <div
-                            className="w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
-                            style={{ backgroundColor: project.color }}
+                        <div className="relative group">
+                          <Link
+                            href={`${href}/board`}
+                            className={cn(
+                              "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors pr-8",
+                              active
+                                ? "bg-accent/10 text-accent font-medium"
+                                : "text-text-muted hover:bg-surface-2 hover:text-text"
+                            )}
                           >
-                            <span className="text-white text-xs font-bold">
-                              {project.key[0]}
-                            </span>
-                          </div>
-                          <span className="truncate">{project.name}</span>
-                        </Link>
+                            <div
+                              className="w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
+                              style={{ backgroundColor: project.color }}
+                            >
+                              <span className="text-white text-xs font-bold">
+                                {project.key[0]}
+                              </span>
+                            </div>
+                            <span className="truncate">{project.name}</span>
+                          </Link>
+                          <button
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setProjectMenuOpen(projectMenuOpen === project.id ? null : project.id);
+                            }}
+                            className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-surface-2 text-text-muted hover:text-text transition-all"
+                          >
+                            <MoreHorizontal className="w-3.5 h-3.5" />
+                          </button>
+                          {projectMenuOpen === project.id && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setProjectMenuOpen(null)} />
+                              <div className="absolute left-full top-0 ml-1 z-50 w-44 bg-background border border-border rounded-lg shadow-lg py-1 text-sm">
+                                <button
+                                  onClick={() => {
+                                    setProjectMenuOpen(null);
+                                    fetch(`/api/projects/${project.id}`, {
+                                      method: "PUT",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ status: "archived" }),
+                                    }).then(() => router.refresh());
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-text-muted hover:bg-surface-2 hover:text-text transition-colors"
+                                >
+                                  <Archive className="w-3.5 h-3.5" />
+                                  Archivar
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setProjectMenuOpen(null);
+                                    setDeleteInput("");
+                                    setDeleteConfirm({ id: project.id, name: project.name });
+                                  }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-red-500 hover:bg-red-500/10 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Eliminar proyecto
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </div>
                         {active && (
                           <div className="ml-4 mt-0.5 space-y-0.5 border-l border-border pl-2.5">
                             {projectSubNav.map(({ href: subHref, icon: SubIcon, label }) => (
@@ -384,6 +438,24 @@ export default function Sidebar({
     );
   }
 
+  const handleDeleteProject = async () => {
+    if (!deleteConfirm || deleteInput !== deleteConfirm.name) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/projects/${deleteConfirm.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Error al eliminar");
+      toast.success(`Proyecto "${deleteConfirm.name}" eliminado`);
+      setDeleteConfirm(null);
+      setDeleteInput("");
+      router.push(`/app/${workspace.slug}`);
+      router.refresh();
+    } catch {
+      toast.error("No se pudo eliminar el proyecto");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <>
       {sidebarContent}
@@ -395,6 +467,73 @@ export default function Sidebar({
             workspaceSlug={workspace.slug}
             onClose={() => setNewProjectOpen(false)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Delete project confirmation modal */}
+      <AnimatePresence>
+        {deleteConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              onClick={() => setDeleteConfirm(null)}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 8 }}
+              transition={{ type: "spring", stiffness: 420, damping: 30 }}
+              className="relative z-10 w-full max-w-md bg-background border border-border rounded-2xl shadow-2xl p-6 space-y-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                  <Trash2 className="w-5 h-5 text-red-500" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-base">Eliminar proyecto</h2>
+                  <p className="text-xs text-text-muted">Esta acción no se puede deshacer</p>
+                </div>
+              </div>
+
+              <p className="text-sm text-text-muted">
+                Se eliminarán permanentemente todas las tareas, mindmaps, reuniones y datos del proyecto{" "}
+                <span className="font-semibold text-text">{deleteConfirm.name}</span>.
+              </p>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-text-muted">
+                  Escribe <span className="font-semibold text-text">{deleteConfirm.name}</span> para confirmar
+                </label>
+                <input
+                  autoFocus
+                  value={deleteInput}
+                  onChange={(e) => setDeleteInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleDeleteProject()}
+                  placeholder={deleteConfirm.name}
+                  className="w-full text-sm bg-surface-2 border border-border rounded-lg px-3 py-2 outline-none focus:border-red-500/50 placeholder:text-text-subtle transition-colors"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  className="flex-1 text-sm px-3 py-2 rounded-lg border border-border text-text-muted hover:text-text hover:border-border-strong transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleDeleteProject}
+                  disabled={deleteInput !== deleteConfirm.name || deleting}
+                  className="flex-1 text-sm px-3 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {deleting ? "Eliminando..." : "Eliminar proyecto"}
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </>
