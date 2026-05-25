@@ -401,7 +401,6 @@ function AttendeesTab({ meetingId }: { meetingId: string }) {
 
   async function suggest() {
     setLoading(true);
-    setStreamedText("");
     setSuggestions([]);
     try {
       // suggest-attendees returns regular JSON, not a stream
