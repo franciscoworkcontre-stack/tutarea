@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { mindmaps, projects, workspaceMembers } from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { mindmaps, mindmapNodes, projects, workspaceMembers } from "@/db/schema";
+import { eq, and, desc, count, inArray } from "drizzle-orm";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -10,42 +10,53 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
-  const workspaceId = searchParams.get("workspaceId");
   const projectId = searchParams.get("projectId");
 
-  if (!workspaceId && !projectId) {
-    return NextResponse.json({ error: "workspaceId or projectId required" }, { status: 400 });
+  if (!projectId) {
+    return NextResponse.json({ error: "projectId required" }, { status: 400 });
   }
 
-  // Determine workspaceId for membership check
-  let resolvedWorkspaceId = workspaceId;
-  if (!resolvedWorkspaceId && projectId) {
-    const project = await db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
-    });
-    if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
-    resolvedWorkspaceId = project.workspaceId;
-  }
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, projectId),
+  });
+
+  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
   const member = await db.query.workspaceMembers.findFirst({
     where: and(
-      eq(workspaceMembers.workspaceId, resolvedWorkspaceId!),
+      eq(workspaceMembers.workspaceId, project.workspaceId),
       eq(workspaceMembers.userId, user.id)
     ),
   });
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const conditions = projectId
-    ? eq(mindmaps.projectId, projectId)
-    : eq(mindmaps.workspaceId, resolvedWorkspaceId!);
-
+  // Fetch mindmaps with node count
   const results = await db.query.mindmaps.findMany({
-    where: conditions,
+    where: eq(mindmaps.projectId, projectId),
     orderBy: [desc(mindmaps.createdAt)],
   });
 
-  return NextResponse.json({ mindmaps: results });
+  // Get node counts per mindmap
+  const mindmapIds = results.map((m) => m.id);
+  const nodeCounts =
+    mindmapIds.length > 0
+      ? await db
+          .select({ mindmapId: mindmapNodes.mindmapId, nodeCount: count() })
+          .from(mindmapNodes)
+          .where(inArray(mindmapNodes.mindmapId, mindmapIds))
+          .groupBy(mindmapNodes.mindmapId)
+      : [];
+
+  // Build a lookup map
+  const nodeCountMap = new Map(nodeCounts.map((r) => [r.mindmapId, Number(r.nodeCount)]));
+
+  const mindmapsWithCount = results.map((m) => ({
+    ...m,
+    nodeCount: nodeCountMap.get(m.id) ?? 0,
+  }));
+
+  return NextResponse.json({ mindmaps: mindmapsWithCount });
 }
 
 export async function POST(request: Request) {
@@ -57,6 +68,8 @@ export async function POST(request: Request) {
     projectId: string;
     title: string;
     description?: string;
+    layout?: "radial" | "tree-h" | "tree-v";
+    theme?: "light" | "dark" | "blueprint" | "sepia";
   };
 
   if (!body.projectId || !body.title) {
@@ -85,9 +98,25 @@ export async function POST(request: Request) {
       workspaceId: project.workspaceId,
       title: body.title,
       description: body.description ?? null,
+      layout: body.layout ?? "radial",
+      theme: body.theme ?? "light",
       createdBy: user.id,
     })
     .returning();
 
-  return NextResponse.json({ mindmap }, { status: 201 });
+  // Create root node automatically
+  const [rootNode] = await db
+    .insert(mindmapNodes)
+    .values({
+      mindmapId: mindmap!.id,
+      parentNodeId: null,
+      label: body.title,
+      positionX: 0,
+      positionY: 0,
+      nodeOrder: 0,
+      orderInParent: 0,
+    })
+    .returning();
+
+  return NextResponse.json({ mindmap, rootNode }, { status: 201 });
 }

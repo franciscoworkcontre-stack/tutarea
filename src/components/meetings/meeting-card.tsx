@@ -1,28 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { Calendar, Clock, Users } from "lucide-react";
-import { cn } from "@/lib/utils";
-import type { Meeting, MeetingAttendee } from "@/lib/meetings/meeting-utils";
+import { Calendar, Clock, CheckSquare } from "lucide-react";
+import { cn, getInitials } from "@/lib/utils";
+import {
+  MEETING_TYPE_LABELS,
+  MEETING_TYPE_COLORS,
+  MEETING_STATUS_COLORS,
+  MEETING_STATUS_LABELS,
+} from "@/lib/meetings/meeting-types";
+import type { MeetingWithDetails } from "@/lib/meetings/meeting-types";
 
 type Props = {
-  meeting: Meeting & { attendees?: MeetingAttendee[] };
+  meeting: MeetingWithDetails;
   workspaceSlug: string;
   projectId: string;
-  onClick?: () => void;
 };
 
-const STATUS_STYLES: Record<string, { label: string; className: string }> = {
-  draft:       { label: "Borrador",    className: "bg-surface-2 text-text-muted border-border" },
-  scheduled:   { label: "Programada",  className: "bg-blue-500/10 text-blue-400 border-blue-500/20" },
-  in_progress: { label: "En curso",    className: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" },
-  completed:   { label: "Completada",  className: "bg-green-500/10 text-green-400 border-green-500/20" },
-  cancelled:   { label: "Cancelada",   className: "bg-red-500/10 text-red-400 border-red-500/20" },
-};
-
-function formatDateTime(date: Date | string | null): string {
+function formatDateRelative(date: Date | string | null): string {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;
+  const now = new Date();
+  const daysDiff = Math.floor(
+    (d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  const timeStr = new Intl.DateTimeFormat("es-CL", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(d);
+
+  if (daysDiff === 0) return `Hoy ${timeStr}`;
+  if (daysDiff === 1) return `Mañana ${timeStr}`;
+  if (daysDiff === -1) return `Ayer ${timeStr}`;
+
   return new Intl.DateTimeFormat("es-CL", {
     month: "short",
     day: "numeric",
@@ -31,51 +42,120 @@ function formatDateTime(date: Date | string | null): string {
   }).format(d);
 }
 
-export default function MeetingCard({ meeting, workspaceSlug, projectId, onClick }: Props) {
-  const status = STATUS_STYLES[meeting.status] ?? STATUS_STYLES["draft"]!;
+const AVATAR_COLORS = [
+  "bg-blue-500/20 text-blue-400",
+  "bg-purple-500/20 text-purple-400",
+  "bg-green-500/20 text-green-400",
+  "bg-orange-500/20 text-orange-400",
+  "bg-pink-500/20 text-pink-400",
+  "bg-cyan-500/20 text-cyan-400",
+];
+
+export default function MeetingCard({
+  meeting,
+  workspaceSlug,
+  projectId,
+}: Props) {
+  const typeLabel =
+    MEETING_TYPE_LABELS[meeting.type] ?? meeting.type;
+  const typeColor =
+    MEETING_TYPE_COLORS[meeting.type] ?? MEETING_TYPE_COLORS["custom"]!;
+  const statusColor =
+    MEETING_STATUS_COLORS[meeting.status] ?? MEETING_STATUS_COLORS["draft"]!;
+  const statusLabel =
+    MEETING_STATUS_LABELS[meeting.status] ?? meeting.status;
+
+  const visibleAttendees = meeting.attendees.slice(0, 4);
+  const extraCount = Math.max(0, meeting.attendees.length - 4);
+
+  const completedAgendaItems = meeting.agendaItems.filter(
+    (i) => !i.parentItemId
+  ).length;
+  const totalAgendaItems = meeting.agendaItems.filter(
+    (i) => !i.parentItemId
+  ).length;
 
   return (
     <Link
       href={`/app/${workspaceSlug}/projects/${projectId}/meetings/${meeting.id}`}
-      onClick={onClick}
-      className="group flex flex-col gap-2 p-4 rounded-xl border border-border bg-background hover:border-border-strong hover:shadow-2 transition-all"
+      className="group flex flex-col gap-2.5 p-4 rounded-xl border border-border bg-background hover:border-border-strong hover:shadow-2 transition-all"
     >
-      <div className="flex items-start justify-between gap-3">
-        <h3 className="text-sm font-medium leading-snug group-hover:text-accent transition-colors line-clamp-1 flex-1 min-w-0">
-          {meeting.title}
-        </h3>
+      {/* Top row: type badge + status badge */}
+      <div className="flex items-center justify-between gap-2">
         <span
           className={cn(
-            "flex-shrink-0 text-xs px-2 py-0.5 rounded-full border font-medium",
-            status?.className
+            "text-xs px-2 py-0.5 rounded-full border font-medium",
+            typeColor
           )}
         >
-          {status?.label}
+          {typeLabel}
+        </span>
+        <span
+          className={cn(
+            "text-xs px-2 py-0.5 rounded-full border font-medium",
+            statusColor
+          )}
+        >
+          {statusLabel}
         </span>
       </div>
 
+      {/* Title */}
+      <h3 className="text-sm font-medium leading-snug group-hover:text-accent transition-colors line-clamp-1">
+        {meeting.title}
+      </h3>
+
+      {/* Objective */}
       {meeting.objective && (
-        <p className="text-xs text-text-muted line-clamp-1">{meeting.objective}</p>
+        <p className="text-xs text-text-muted line-clamp-1">
+          {meeting.objective}
+        </p>
       )}
 
-      <div className="flex items-center gap-3 mt-1">
+      {/* Meta row */}
+      <div className="flex items-center gap-3 flex-wrap">
         {meeting.scheduledAt && (
           <div className="flex items-center gap-1 text-xs text-text-subtle">
-            <Calendar className="w-3.5 h-3.5" />
-            {formatDateTime(meeting.scheduledAt)}
+            <Calendar className="w-3 h-3" />
+            <span>{formatDateRelative(meeting.scheduledAt)}</span>
           </div>
         )}
         <div className="flex items-center gap-1 text-xs text-text-subtle">
-          <Clock className="w-3.5 h-3.5" />
-          {meeting.durationMin} min
+          <Clock className="w-3 h-3" />
+          <span>{meeting.durationMin} min</span>
         </div>
-        {meeting.attendees && meeting.attendees.length > 0 && (
+        {totalAgendaItems > 0 && (
           <div className="flex items-center gap-1 text-xs text-text-subtle">
-            <Users className="w-3.5 h-3.5" />
-            {meeting.attendees.length}
+            <CheckSquare className="w-3 h-3" />
+            <span>
+              {completedAgendaItems}/{totalAgendaItems} items
+            </span>
           </div>
         )}
       </div>
+
+      {/* Attendees row */}
+      {meeting.attendees.length > 0 && (
+        <div className="flex items-center gap-1 mt-0.5">
+          {visibleAttendees.map((a, idx) => (
+            <div
+              key={a.id}
+              className={cn(
+                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold border border-background -ml-1 first:ml-0",
+                AVATAR_COLORS[idx % AVATAR_COLORS.length]
+              )}
+              title={a.userId}
+            >
+              {getInitials(a.userId.slice(0, 4))}
+            </div>
+          ))}
+          {extraCount > 0 && (
+            <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold bg-surface-2 text-text-subtle border border-background -ml-1">
+              +{extraCount}
+            </div>
+          )}
+        </div>
+      )}
     </Link>
   );
 }

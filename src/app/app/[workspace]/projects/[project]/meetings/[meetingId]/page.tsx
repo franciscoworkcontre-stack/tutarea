@@ -1,20 +1,30 @@
 import { redirect, notFound } from "next/navigation";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { meetings, projects, workspaceMembers, profiles } from "@/db/schema";
 import { eq, and, asc } from "drizzle-orm";
 import MeetingDetail from "@/components/meetings/meeting-detail";
+import type { MeetingWithDetails } from "@/lib/meetings/meeting-types";
 
 type Props = {
-  params: Promise<{ workspace: string; project: string; meetingId: string }>;
+  params: Promise<{
+    workspace: string;
+    project: string;
+    meetingId: string;
+  }>;
 };
 
 export default async function MeetingDetailPage({ params }: Props) {
-  const { workspace: workspaceSlug, project: projectId, meetingId } = await params;
+  const {
+    workspace: workspaceSlug,
+    project: projectId,
+    meetingId,
+  } = await params;
+
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
 
@@ -38,6 +48,9 @@ export default async function MeetingDetailPage({ params }: Props) {
     with: {
       attendees: true,
       agendaItems: { orderBy: (items) => [asc(items.orderIdx)] },
+      attachments: true,
+      notes: true,
+      preQuestions: { orderBy: (q) => [asc(q.orderIdx)] },
     },
   });
 
@@ -59,27 +72,18 @@ export default async function MeetingDetailPage({ params }: Props) {
     profile: userProfiles[i] ?? null,
   }));
 
+  // Serialize Date objects so they can be passed to Client Components
+  const serializedMeeting = JSON.parse(JSON.stringify(meeting)) as MeetingWithDetails;
+  const serializedMembers = JSON.parse(JSON.stringify(members)) as typeof members;
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex items-center gap-3 px-6 py-3 border-b border-border flex-shrink-0">
-        <Link
-          href={`/app/${workspaceSlug}/projects/${projectId}/meetings`}
-          className="flex items-center gap-1.5 text-sm text-text-muted hover:text-text transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Reuniones
-        </Link>
-        <span className="text-text-subtle">/</span>
-        <span className="text-sm text-text truncate">{meeting.title}</span>
-      </div>
-      <div className="flex-1 overflow-hidden">
-        <MeetingDetail
-          meeting={meeting}
-          members={members}
-          workspaceSlug={workspaceSlug}
-          currentUserId={user.id}
-        />
-      </div>
+      <MeetingDetail
+        meeting={serializedMeeting}
+        members={serializedMembers}
+        currentUserId={user.id}
+        workspaceSlug={workspaceSlug}
+      />
     </div>
   );
 }

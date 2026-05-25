@@ -517,6 +517,9 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
 
 // === MINDMAPS ===
 export const mindmapStatusEnum = pgEnum("mindmap_status", ["draft", "active", "archived"]);
+export const mindmapLayoutEnum = pgEnum("mindmap_layout", ["radial", "tree-h", "tree-v"]);
+export const mindmapNodeShapeEnum = pgEnum("mindmap_node_shape", ["rounded", "circle", "diamond", "rect"]);
+export const mindmapThemeEnum = pgEnum("mindmap_theme", ["light", "dark", "blueprint", "sepia"]);
 
 export const mindmaps = pgTable("mindmaps", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -525,6 +528,10 @@ export const mindmaps = pgTable("mindmaps", {
   title: text("title").notNull(),
   description: text("description"),
   status: mindmapStatusEnum("status").notNull().default("draft"),
+  layout: mindmapLayoutEnum("layout").notNull().default("radial"),
+  theme: mindmapThemeEnum("theme").notNull().default("light"),
+  settingsJsonb: jsonb("settings_jsonb").notNull().default({}),
+  version: integer("version").notNull().default(1),
   createdBy: uuid("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -541,14 +548,51 @@ export const mindmapNodes = pgTable("mindmap_nodes", {
   positionY: integer("position_y").notNull().default(0),
   nodeOrder: integer("node_order").notNull().default(0),
   linkedTaskId: uuid("linked_task_id").references(() => tasks.id, { onDelete: "set null" }),
+  styleJsonb: jsonb("style_jsonb").notNull().default({}),
+  positionOverrideJsonb: jsonb("position_override_jsonb"),
+  collapsedByJsonb: jsonb("collapsed_by_jsonb").notNull().default([]),
+  orderInParent: integer("order_in_parent").notNull().default(0),
+  metadataJsonb: jsonb("metadata_jsonb").notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const mindmapEdges = pgTable("mindmap_edges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  mindmapId: uuid("mindmap_id").notNull().references(() => mindmaps.id, { onDelete: "cascade" }),
+  sourceId: uuid("source_id").notNull().references(() => mindmapNodes.id, { onDelete: "cascade" }),
+  targetId: uuid("target_id").notNull().references(() => mindmapNodes.id, { onDelete: "cascade" }),
+  isHierarchical: boolean("is_hierarchical").notNull().default(true),
+  styleJsonb: jsonb("style_jsonb").default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const mindmapNodeComments = pgTable("mindmap_node_comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  mindmapId: uuid("mindmap_id").notNull().references(() => mindmaps.id, { onDelete: "cascade" }),
+  nodeId: uuid("node_id").notNull().references(() => mindmapNodes.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull(),
+  content: text("content").notNull(),
+  parentCommentId: uuid("parent_comment_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const mindmapVersions = pgTable("mindmap_versions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  mindmapId: uuid("mindmap_id").notNull().references(() => mindmaps.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  snapshotJsonb: jsonb("snapshot_jsonb").notNull(),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const mindmapsRelations = relations(mindmaps, ({ one, many }) => ({
   project: one(projects, { fields: [mindmaps.projectId], references: [projects.id] }),
   workspace: one(workspaces, { fields: [mindmaps.workspaceId], references: [workspaces.id] }),
   nodes: many(mindmapNodes),
+  edges: many(mindmapEdges),
+  versions: many(mindmapVersions),
 }));
 
 export const mindmapNodesRelations = relations(mindmapNodes, ({ one, many }) => ({
@@ -556,13 +600,32 @@ export const mindmapNodesRelations = relations(mindmapNodes, ({ one, many }) => 
   children: many(mindmapNodes, { relationName: "parent_children" }),
   parent: one(mindmapNodes, { fields: [mindmapNodes.parentNodeId], references: [mindmapNodes.id], relationName: "parent_children" }),
   linkedTask: one(tasks, { fields: [mindmapNodes.linkedTaskId], references: [tasks.id] }),
+  comments: many(mindmapNodeComments),
+  edgesAsSource: many(mindmapEdges, { relationName: "edges_source" }),
+  edgesAsTarget: many(mindmapEdges, { relationName: "edges_target" }),
+}));
+
+export const mindmapEdgesRelations = relations(mindmapEdges, ({ one }) => ({
+  mindmap: one(mindmaps, { fields: [mindmapEdges.mindmapId], references: [mindmaps.id] }),
+  source: one(mindmapNodes, { fields: [mindmapEdges.sourceId], references: [mindmapNodes.id], relationName: "edges_source" }),
+  target: one(mindmapNodes, { fields: [mindmapEdges.targetId], references: [mindmapNodes.id], relationName: "edges_target" }),
+}));
+
+export const mindmapNodeCommentsRelations = relations(mindmapNodeComments, ({ one }) => ({
+  mindmap: one(mindmaps, { fields: [mindmapNodeComments.mindmapId], references: [mindmaps.id] }),
+  node: one(mindmapNodes, { fields: [mindmapNodeComments.nodeId], references: [mindmapNodes.id] }),
+}));
+
+export const mindmapVersionsRelations = relations(mindmapVersions, ({ one }) => ({
+  mindmap: one(mindmaps, { fields: [mindmapVersions.mindmapId], references: [mindmaps.id] }),
 }));
 
 // === MEETINGS ===
-export const meetingStatusEnum = pgEnum("meeting_status", ["draft", "scheduled", "in_progress", "completed", "cancelled"]);
+export const meetingStatusEnum = pgEnum("meeting_status", ["draft", "scheduled", "in_progress", "completed", "cancelled", "archived"]);
 export const attendeeRoleEnum = pgEnum("attendee_role", ["facilitator", "scribe", "decision_maker", "contributor", "optional"]);
 export const attendeeRsvpEnum = pgEnum("attendee_rsvp", ["pending", "accepted", "declined", "tentative"]);
 export const agendaItemTypeEnum = pgEnum("agenda_item_type", ["discussion", "decision", "update", "brainstorm", "qa"]);
+export const meetingTypeEnum = pgEnum("meeting_type", ["1-on-1", "team-sync", "decision", "brainstorm", "review", "retro", "kickoff", "custom"]);
 
 export const meetings = pgTable("meetings", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -570,14 +633,18 @@ export const meetings = pgTable("meetings", {
   workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   objective: text("objective"),
+  type: meetingTypeEnum("type").notNull().default("team-sync"),
   status: meetingStatusEnum("status").notNull().default("draft"),
   scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
   durationMin: integer("duration_min").notNull().default(60),
   timezone: text("timezone").notNull().default("America/Santiago"),
   location: text("location"),
+  locationUrl: text("location_url"),
   meetingUrl: text("meeting_url"),
   briefingMd: text("briefing_md"),
   recapMd: text("recap_md"),
+  settingsJsonb: jsonb("settings_jsonb").default({}),
+  calendarEventId: text("calendar_event_id"),
   ownerId: uuid("owner_id").notNull(),
   createdBy: uuid("created_by").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -590,6 +657,8 @@ export const meetingAttendees = pgTable("meeting_attendees", {
   userId: uuid("user_id").notNull(),
   role: attendeeRoleEnum("role").notNull().default("contributor"),
   rsvp: attendeeRsvpEnum("rsvp").notNull().default("pending"),
+  preReadCompletionJsonb: jsonb("pre_read_completion_jsonb").default({}),
+  informedAfter: boolean("informed_after").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -607,11 +676,67 @@ export const meetingAgendaItems = pgTable("meeting_agenda_items", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const meetingAttachments = pgTable("meeting_attachments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  meetingId: uuid("meeting_id").notNull().references(() => meetings.id, { onDelete: "cascade" }),
+  agendaItemId: uuid("agenda_item_id").references(() => meetingAgendaItems.id, { onDelete: "set null" }),
+  sourceType: text("source_type").notNull(), // 'mindmap' | 'task' | 'meeting' | 'decision' | 'external_link'
+  sourceRefId: uuid("source_ref_id"),
+  externalUrl: text("external_url"),
+  title: text("title").notNull(),
+  thumbnailUrl: text("thumbnail_url"),
+  ogMetadataJsonb: jsonb("og_metadata_jsonb").default({}),
+  preReadRequired: boolean("pre_read_required").notNull().default(false),
+  aiSummaryMd: text("ai_summary_md"),
+  addedBy: uuid("added_by").notNull(),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const meetingNotes = pgTable("meeting_notes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  meetingId: uuid("meeting_id").notNull().references(() => meetings.id, { onDelete: "cascade" }),
+  agendaItemId: uuid("agenda_item_id").references(() => meetingAgendaItems.id, { onDelete: "set null" }),
+  noteType: text("note_type").notNull(), // 'note' | 'decision' | 'action_item'
+  contentMd: text("content_md").notNull(),
+  authorId: uuid("author_id").notNull(),
+  assigneeId: uuid("assignee_id"),
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  materializedTaskId: uuid("materialized_task_id").references(() => tasks.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const meetingPreQuestions = pgTable("meeting_pre_questions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  meetingId: uuid("meeting_id").notNull().references(() => meetings.id, { onDelete: "cascade" }),
+  questionText: text("question_text").notNull(),
+  responsesJsonb: jsonb("responses_jsonb").default({}),
+  orderIdx: integer("order_idx").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const meetingDecisions = pgTable("meeting_decisions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  meetingId: uuid("meeting_id").notNull().references(() => meetings.id, { onDelete: "cascade" }),
+  meetingNoteId: uuid("meeting_note_id").references(() => meetingNotes.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  descriptionMd: text("description_md"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+  decidedBy: uuid("decided_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const meetingsRelations = relations(meetings, ({ one, many }) => ({
   project: one(projects, { fields: [meetings.projectId], references: [projects.id] }),
   workspace: one(workspaces, { fields: [meetings.workspaceId], references: [workspaces.id] }),
   attendees: many(meetingAttendees),
   agendaItems: many(meetingAgendaItems),
+  attachments: many(meetingAttachments),
+  notes: many(meetingNotes),
+  preQuestions: many(meetingPreQuestions),
+  decisions: many(meetingDecisions),
 }));
 
 export const meetingAttendeesRelations = relations(meetingAttendees, ({ one }) => ({
@@ -622,4 +747,28 @@ export const meetingAgendaItemsRelations = relations(meetingAgendaItems, ({ one,
   meeting: one(meetings, { fields: [meetingAgendaItems.meetingId], references: [meetings.id] }),
   children: many(meetingAgendaItems, { relationName: "agenda_parent_children" }),
   parent: one(meetingAgendaItems, { fields: [meetingAgendaItems.parentItemId], references: [meetingAgendaItems.id], relationName: "agenda_parent_children" }),
+  attachments: many(meetingAttachments),
+  notes: many(meetingNotes),
+}));
+
+export const meetingAttachmentsRelations = relations(meetingAttachments, ({ one }) => ({
+  meeting: one(meetings, { fields: [meetingAttachments.meetingId], references: [meetings.id] }),
+  agendaItem: one(meetingAgendaItems, { fields: [meetingAttachments.agendaItemId], references: [meetingAgendaItems.id] }),
+}));
+
+export const meetingNotesRelations = relations(meetingNotes, ({ one }) => ({
+  meeting: one(meetings, { fields: [meetingNotes.meetingId], references: [meetings.id] }),
+  agendaItem: one(meetingAgendaItems, { fields: [meetingNotes.agendaItemId], references: [meetingAgendaItems.id] }),
+  materializedTask: one(tasks, { fields: [meetingNotes.materializedTaskId], references: [tasks.id] }),
+}));
+
+export const meetingPreQuestionsRelations = relations(meetingPreQuestions, ({ one }) => ({
+  meeting: one(meetings, { fields: [meetingPreQuestions.meetingId], references: [meetings.id] }),
+}));
+
+export const meetingDecisionsRelations = relations(meetingDecisions, ({ one }) => ({
+  project: one(projects, { fields: [meetingDecisions.projectId], references: [projects.id] }),
+  workspace: one(workspaces, { fields: [meetingDecisions.workspaceId], references: [workspaces.id] }),
+  meeting: one(meetings, { fields: [meetingDecisions.meetingId], references: [meetings.id] }),
+  meetingNote: one(meetingNotes, { fields: [meetingDecisions.meetingNoteId], references: [meetingNotes.id] }),
 }));

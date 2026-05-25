@@ -34,8 +34,16 @@ export default async function MindmapsPage({ params }: Props) {
 
     const projectMindmaps = await db.query.mindmaps.findMany({
       where: eq(mindmaps.projectId, projectId),
+      with: { nodes: true },
       orderBy: [mindmaps.updatedAt],
     });
+
+    // Attach node count to each mindmap — strip the nodes relation before passing as props
+    // (Server Component props must be serializable; Date fields are serialized to ISO strings by Next.js)
+    const mindmapsWithCount = projectMindmaps.map(({ nodes, ...m }) => ({
+      ...m,
+      nodeCount: nodes?.length ?? 0,
+    }));
 
     const canCreate = member.role === "owner" || member.role === "admin" || member.role === "member";
 
@@ -45,7 +53,7 @@ export default async function MindmapsPage({ params }: Props) {
           <MindmapList
             projectId={projectId}
             workspaceSlug={workspaceSlug}
-            initialMindmaps={projectMindmaps}
+            initialMindmaps={mindmapsWithCount}
             canCreate={canCreate}
           />
         </div>

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { meetings, meetingAttendees, meetingAgendaItems, workspaceMembers } from "@/db/schema";
 import { eq, and, asc } from "drizzle-orm";
-import { canTransition } from "@/lib/meetings/meeting-utils";
+import { canTransition } from "@/lib/meetings/meeting-types";
 
 export async function GET(
   request: Request,

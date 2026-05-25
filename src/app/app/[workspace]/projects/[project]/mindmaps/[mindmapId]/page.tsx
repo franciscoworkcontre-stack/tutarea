@@ -6,7 +6,6 @@ import { mindmaps, projects, workspaceMembers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { ChevronLeft } from "lucide-react";
 import MindmapCanvas from "@/components/mindmaps/mindmap-canvas";
-import type { MindmapNode } from "@/components/mindmaps/mindmap-node";
 
 type Props = {
   params: Promise<{ workspace: string; project: string; mindmapId: string }>;
@@ -15,7 +14,9 @@ type Props = {
 export default async function MindmapEditorPage({ params }: Props) {
   const { workspace: workspaceSlug, project: projectId, mindmapId } = await params;
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   if (!user) redirect("/login");
 
@@ -36,12 +37,15 @@ export default async function MindmapEditorPage({ params }: Props) {
 
   const mindmap = await db.query.mindmaps.findFirst({
     where: eq(mindmaps.id, mindmapId),
-    with: { nodes: true },
+    with: { nodes: true, edges: true },
   });
 
   if (!mindmap || mindmap.projectId !== projectId) notFound();
 
-  const initialNodes: MindmapNode[] = mindmap.nodes.map((n) => ({
+  const canEdit =
+    member.role === "owner" || member.role === "admin" || member.role === "member";
+
+  const initialNodes = mindmap.nodes.map((n) => ({
     id: n.id,
     mindmapId: n.mindmapId,
     parentNodeId: n.parentNodeId,
@@ -51,11 +55,22 @@ export default async function MindmapEditorPage({ params }: Props) {
     positionX: n.positionX,
     positionY: n.positionY,
     nodeOrder: n.nodeOrder,
-    children: [],
+    linkedTaskId: n.linkedTaskId ?? null,
+    styleJsonb: (n.styleJsonb ?? {}) as Record<string, unknown>,
+    collapsedByJsonb: (n.collapsedByJsonb ?? []) as string[],
+    orderInParent: n.orderInParent,
+  }));
+
+  const initialEdges = mindmap.edges.map((e) => ({
+    id: e.id,
+    sourceId: e.sourceId,
+    targetId: e.targetId,
+    styleJsonb: (e.styleJsonb ?? {}) as Record<string, unknown>,
   }));
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Breadcrumb */}
       <div className="flex items-center gap-2 px-4 h-12 border-b border-border bg-surface flex-shrink-0 min-w-0">
         <Link
           href={`/app/${workspaceSlug}/projects/${projectId}/mindmaps`}
@@ -66,9 +81,12 @@ export default async function MindmapEditorPage({ params }: Props) {
         </Link>
         <div className="w-px h-4 bg-border flex-shrink-0" />
         <nav className="flex items-center gap-1 sm:gap-1.5 text-sm text-text-muted min-w-0 overflow-hidden">
-          <span className="hidden sm:inline flex-shrink-0">Proyectos</span>
-          <span className="hidden sm:inline flex-shrink-0">/</span>
-          <span className="hidden sm:inline text-text truncate max-w-[8rem]">{project.name}</span>
+          <Link
+            href={`/app/${workspaceSlug}/projects/${projectId}`}
+            className="hidden sm:inline hover:text-text transition-colors flex-shrink-0 truncate max-w-[8rem]"
+          >
+            {project.name}
+          </Link>
           <span className="hidden sm:inline flex-shrink-0">/</span>
           <Link
             href={`/app/${workspaceSlug}/projects/${projectId}/mindmaps`}
@@ -81,11 +99,16 @@ export default async function MindmapEditorPage({ params }: Props) {
         </nav>
       </div>
 
-      <div className="flex-1 overflow-hidden p-2 sm:p-4">
+      {/* Canvas wrapper — needs defined height */}
+      <div className="flex-1 overflow-hidden p-2 sm:p-4 min-h-0">
         <MindmapCanvas
           mindmapId={mindmapId}
+          workspaceSlug={workspaceSlug}
+          projectId={projectId}
           initialNodes={initialNodes}
-          readOnly={false}
+          initialEdges={initialEdges}
+          canEdit={canEdit}
+          currentUserId={user.id}
         />
       </div>
     </div>

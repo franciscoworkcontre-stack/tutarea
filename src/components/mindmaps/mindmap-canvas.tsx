@@ -1,599 +1,938 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
-import { AnimatePresence } from "framer-motion";
-import { toast } from "sonner";
-import { ZoomIn, ZoomOut, Maximize2, Plus, Minus } from "lucide-react";
-import { cn } from "@/lib/utils";
-import MindmapNodeComponent, { type MindmapNode } from "./mindmap-node";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  addEdge,
+  applyNodeChanges,
+  applyEdgeChanges,
+  BackgroundVariant,
+  ReactFlowProvider,
+  type Connection,
+  type NodeChange,
+  type EdgeChange,
+  type Node,
+  type Edge,
+} from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
+import { toPng, toSvg } from 'html-to-image';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { useMindmapStore, type MindmapNodeData } from '@/lib/mindmaps/mindmap-store';
+import { applyDagreLayout, getLayoutDirection } from '@/lib/mindmaps/mindmap-layout';
+import MindmapNodeComponent from './mindmap-node-component';
+import MindmapToolbar from './mindmap-toolbar';
+import MindmapShortcutsPanel from './mindmap-shortcuts-panel';
+import MindmapAiPanel, {
+  type AiPanelMode,
+  type AiExpandResult,
+  type AiSummarizeResult,
+  type AiConvertResult,
+} from './mindmap-ai-panel';
+import MindmapContextMenu from './mindmap-context-menu';
+
+const nodeTypes = { mindmapNode: MindmapNodeComponent };
+
+type DbNode = {
+  id: string;
+  mindmapId: string;
+  parentNodeId: string | null;
+  label: string;
+  content: string | null;
+  color: string;
+  positionX: number;
+  positionY: number;
+  nodeOrder: number;
+  linkedTaskId?: string | null;
+  styleJsonb?: Record<string, unknown>;
+  collapsedByJsonb?: string[];
+  orderInParent?: number;
+};
+
+type DbEdge = {
+  id: string;
+  sourceId: string;
+  targetId: string;
+  styleJsonb?: Record<string, unknown>;
+};
 
 type Props = {
   mindmapId: string;
-  initialNodes: MindmapNode[];
-  readOnly?: boolean;
+  workspaceSlug: string;
+  projectId: string;
+  initialNodes: DbNode[];
+  initialEdges: DbEdge[];
+  canEdit: boolean;
+  currentUserId: string;
 };
 
-type Transform = { x: number; y: number; scale: number };
+const THEME_CLASSES: Record<string, string> = {
+  light: 'bg-white',
+  dark: 'bg-gray-950 [&_.react-flow\_\_node]:text-white',
+  blueprint: 'bg-blue-950',
+  sepia: 'bg-amber-50',
+};
 
-type DragState = {
-  nodeId: string;
-  startX: number;
-  startY: number;
-  originX: number;
-  originY: number;
-} | null;
+const SAVE_DEBOUNCE_MS = 800;
 
-type PanState = {
-  startX: number;
-  startY: number;
-  originX: number;
-  originY: number;
-} | null;
+function dbNodesToFlow(dbNodes: DbNode[]): Node<MindmapNodeData>[] {
+  const roots = dbNodes.filter((n) => !n.parentNodeId);
+  const isRoot = (id: string) => roots.some((r) => r.id === id);
 
-export function autoLayout(nodes: MindmapNode[]): MindmapNode[] {
-  if (nodes.length === 0) return nodes;
+  function nodeType(n: DbNode): 'root' | 'child' | 'leaf' {
+    if (isRoot(n.id)) return 'root';
+    const hasChildren = dbNodes.some((c) => c.parentNodeId === n.id);
+    return hasChildren ? 'child' : 'leaf';
+  }
 
-  const nodeMap = new Map<string, MindmapNode>();
-  nodes.forEach((n) => nodeMap.set(n.id, { ...n, children: [] }));
+  return dbNodes.map((n) => ({
+    id: n.id,
+    type: 'mindmapNode',
+    position: { x: n.positionX, y: n.positionY },
+    data: {
+      label: n.label,
+      contentMd: n.content ?? undefined,
+      color: n.color,
+      parentNodeId: n.parentNodeId,
+      linkedTaskId: n.linkedTaskId ?? null,
+      styleJsonb: n.styleJsonb as MindmapNodeData['styleJsonb'],
+      collapsedByJsonb: n.collapsedByJsonb ?? [],
+      isCollapsed: false,
+      isEditing: false,
+      nodeType: nodeType(n),
+      orderInParent: n.orderInParent ?? 0,
+    },
+  }));
+}
 
-  let root: MindmapNode | null = null;
-  const childrenMap = new Map<string | null, MindmapNode[]>();
+function dbEdgesToFlow(dbEdges: DbEdge[], dbNodes: DbNode[]): Edge[] {
+  // Build edges from parent relationships if no explicit edges
+  const fromParents: Edge[] = dbNodes
+    .filter((n) => n.parentNodeId)
+    .map((n) => ({
+      id: `e-${n.parentNodeId}-${n.id}`,
+      source: n.parentNodeId!,
+      target: n.id,
+      type: 'smoothstep',
+      style: { stroke: 'var(--color-border, #e2e8f0)', strokeWidth: 2 },
+    }));
 
-  nodes.forEach((n) => {
-    const key = n.parentNodeId ?? null;
-    if (!childrenMap.has(key)) childrenMap.set(key, []);
-    childrenMap.get(key)!.push(nodeMap.get(n.id)!);
-    if (!n.parentNodeId) root = nodeMap.get(n.id)!;
+  const explicit: Edge[] = dbEdges
+    .filter((e) => !dbNodes.some((n) => n.parentNodeId && `e-${n.parentNodeId}-${n.id}` === e.id))
+    .map((e) => ({
+      id: e.id,
+      source: e.sourceId,
+      target: e.targetId,
+      type: 'smoothstep',
+      style: { stroke: 'var(--color-border, #e2e8f0)', strokeWidth: 2 },
+    }));
+
+  return [...fromParents, ...explicit];
+}
+
+function collectDescendantIds(nodeId: string, nodes: Node<MindmapNodeData>[]): string[] {
+  const children = nodes.filter((n) => n.data.parentNodeId === nodeId);
+  return children.flatMap((c) => [c.id, ...collectDescendantIds(c.id, nodes)]);
+}
+
+function nodesToMarkdown(nodes: Node<MindmapNodeData>[], edges: Edge[]): string {
+  const childMap = new Map<string, string[]>();
+  edges.forEach((e) => {
+    if (!childMap.has(e.source)) childMap.set(e.source, []);
+    childMap.get(e.source)!.push(e.target);
   });
 
-  if (!root) root = nodeMap.get(nodes[0]!.id)!;
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const roots = nodes.filter((n) => !n.data.parentNodeId);
 
-  const rootNode = root as MindmapNode;
-  const H_SPACING = 180;
-  const V_SPACING = 70;
-  const CANVAS_CX = 0;
-  const CANVAS_CY = 0;
-
-  function getSubtreeHeight(nodeId: string): number {
-    const children = childrenMap.get(nodeId) ?? [];
-    if (children.length === 0) return 1;
-    return children.reduce((sum, c) => sum + getSubtreeHeight(c.id), 0);
+  function walk(id: string, depth: number): string {
+    const node = nodeMap.get(id);
+    if (!node) return '';
+    const prefix = '#'.repeat(Math.min(depth + 1, 6));
+    const line = `${prefix} ${node.data.label}`;
+    const children = childMap.get(id) ?? [];
+    return [line, ...children.map((c) => walk(c, depth + 1))].join('\n');
   }
 
-  function assignPositions(nodeId: string, x: number, topY: number): void {
-    const node = nodeMap.get(nodeId)!;
-    const children = childrenMap.get(nodeId) ?? [];
-    const totalH = getSubtreeHeight(nodeId);
-    const centerY = topY + (totalH * V_SPACING) / 2;
-
-    node.positionX = x;
-    node.positionY = centerY;
-
-    let currentY = topY;
-    children.forEach((child) => {
-      const childH = getSubtreeHeight(child.id);
-      assignPositions(child.id, x + H_SPACING, currentY);
-      currentY += childH * V_SPACING;
-    });
-  }
-
-  const rootHeight = getSubtreeHeight(rootNode.id);
-  assignPositions(rootNode.id, CANVAS_CX, CANVAS_CY - (rootHeight * V_SPACING) / 2);
-
-  return Array.from(nodeMap.values());
+  return roots.map((r) => walk(r.id, 0)).join('\n\n');
 }
 
-function buildTree(flat: MindmapNode[]): MindmapNode[] {
-  const map = new Map<string, MindmapNode>();
-  flat.forEach((n) => map.set(n.id, { ...n, children: [] }));
-  const roots: MindmapNode[] = [];
-  map.forEach((node) => {
-    if (node.parentNodeId && map.has(node.parentNodeId)) {
-      map.get(node.parentNodeId)!.children!.push(node);
-    } else {
-      roots.push(node);
-    }
+function nodesToOpml(nodes: Node<MindmapNodeData>[], edges: Edge[]): string {
+  const childMap = new Map<string, string[]>();
+  edges.forEach((e) => {
+    if (!childMap.has(e.source)) childMap.set(e.source, []);
+    childMap.get(e.source)!.push(e.target);
   });
-  return roots;
-}
 
-function flattenTree(roots: MindmapNode[]): MindmapNode[] {
-  const result: MindmapNode[] = [];
-  function walk(node: MindmapNode) {
-    result.push(node);
-    node.children?.forEach(walk);
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const roots = nodes.filter((n) => !n.data.parentNodeId);
+
+  function walk(id: string): string {
+    const node = nodeMap.get(id);
+    if (!node) return '';
+    const children = childMap.get(id) ?? [];
+    const text = node.data.label.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (children.length === 0) return `<outline text="${text}"/>`;
+    return `<outline text="${text}">\n${children.map(walk).join('\n')}\n</outline>`;
   }
-  roots.forEach(walk);
-  return result;
+
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n<head><title>Mindmap</title></head>\n<body>\n${roots.map((r) => walk(r.id)).join('\n')}\n</body>\n</opml>`;
 }
 
-function getDepth(nodeId: string, nodes: MindmapNode[]): number {
-  const map = new Map<string, MindmapNode>();
-  nodes.forEach((n) => map.set(n.id, n));
-  let depth = 0;
-  let current = map.get(nodeId);
-  while (current?.parentNodeId) {
-    depth++;
-    current = map.get(current.parentNodeId);
-  }
-  return depth;
-}
+function MindmapCanvasInner({
+  mindmapId,
+  workspaceSlug: _workspaceSlug,
+  projectId: _projectId,
+  initialNodes,
+  initialEdges,
+  canEdit,
+  currentUserId: _currentUserId,
+}: Props) {
+  const store = useMindmapStore();
+  const flowRef = useRef<HTMLDivElement>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [aiPanelOpen, setAiPanelOpen] = useState(false);
+  const [aiMode, setAiMode] = useState<AiPanelMode>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [expandResult, setExpandResult] = useState<AiExpandResult | null>(null);
+  const [summarizeResult, setSummarizeResult] = useState<AiSummarizeResult | null>(null);
+  const [convertResult, setConvertResult] = useState<AiConvertResult | null>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    nodeId: string;
+  } | null>(null);
 
-function generateId(): string {
-  return crypto.randomUUID();
-}
-
-const EDGE_COLOR = "var(--color-border, #e2e8f0)";
-
-export default function MindmapCanvas({ mindmapId, initialNodes, readOnly = false }: Props) {
-  const needsLayout = initialNodes.length > 0 && initialNodes.every((n) => n.positionX === 0 && n.positionY === 0);
-  const [nodes, setNodes] = useState<MindmapNode[]>(() =>
-    needsLayout ? autoLayout(initialNodes) : initialNodes
-  );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<DragState>(null);
-  const panRef = useRef<PanState>(null);
-  const isDraggingNode = useRef(false);
-
-  const handleFitToScreen = useCallback(() => {
-    if (nodes.length === 0) return;
-    const container = containerRef.current;
-    if (!container) return;
-    const { width, height } = container.getBoundingClientRect();
-    const xs = nodes.map((n) => n.positionX);
-    const ys = nodes.map((n) => n.positionY);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const contentW = maxX - minX + 200;
-    const contentH = maxY - minY + 100;
-    const scale = Math.min(width / contentW, height / contentH, 1.5, 2);
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    setTransform({
-      x: width / 2 - cx * scale,
-      y: height / 2 - cy * scale,
-      scale: Math.max(0.5, Math.min(scale, 2)),
-    });
-  }, [nodes]);
-
+  // Initialize store from props
   useEffect(() => {
-    if (nodes.length > 0) handleFitToScreen();
+    const flowNodes = dbNodesToFlow(initialNodes);
+    const flowEdges = dbEdgesToFlow(initialEdges, initialNodes);
+
+    const needsLayout =
+      flowNodes.length > 0 &&
+      flowNodes.every((n) => n.position.x === 0 && n.position.y === 0);
+
+    if (needsLayout) {
+      const dir = getLayoutDirection(store.layoutMode);
+      const { nodes: ln, edges: le } = applyDagreLayout(flowNodes, flowEdges, dir);
+      store.setNodes(ln as Node<MindmapNodeData>[]);
+      store.setEdges(le);
+    } else {
+      store.setNodes(flowNodes as Node<MindmapNodeData>[]);
+      store.setEdges(flowEdges);
+    }
+    store.setDirty(false);
+    setSaveStatus('saved');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mindmapId]);
+
+  // Custom event: label change from node component
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { nodeId, label } = (e as CustomEvent).detail as { nodeId: string; label: string };
+      store.updateNode(nodeId, { label });
+      scheduleSave(nodeId, { label });
+    };
+    window.addEventListener('mindmap:node-label-change', handler);
+    return () => window.removeEventListener('mindmap:node-label-change', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const saveNodeLabel = useCallback(
-    async (nodeId: string, label: string) => {
-      try {
-        const res = await fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ label }),
-        });
-        if (!res.ok) throw new Error("Error al guardar");
-      } catch {
-        toast.error("No se pudo guardar el nodo");
-      }
-    },
-    [mindmapId]
-  );
-
-  const saveNodePosition = useCallback(
-    async (nodeId: string, positionX: number, positionY: number) => {
-      try {
-        await fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ positionX, positionY }),
-        });
-      } catch {
-        toast.error("No se pudo guardar la posición");
-      }
-    },
-    [mindmapId]
-  );
-
-  const handleLabelBlur = useCallback(
-    (nodeId: string) => {
-      setEditingId(null);
-      const node = nodes.find((n) => n.id === nodeId);
-      if (node) saveNodeLabel(nodeId, node.label);
-    },
-    [nodes, saveNodeLabel]
-  );
-
-  const handleLabelChange = useCallback((nodeId: string, label: string) => {
-    setNodes((prev) => prev.map((n) => (n.id === nodeId ? { ...n, label } : n)));
-  }, []);
-
-  const handleAddChild = useCallback(
-    async (parentId: string) => {
-      const parent = nodes.find((n) => n.id === parentId);
-      if (!parent) return;
-      const siblings = nodes.filter((n) => n.parentNodeId === parentId);
-      const newNode: MindmapNode = {
-        id: generateId(),
-        mindmapId,
-        parentNodeId: parentId,
-        label: "Nuevo nodo",
-        content: null,
-        color: parent.color,
-        positionX: parent.positionX + 180,
-        positionY: parent.positionY + siblings.length * 70,
-        nodeOrder: siblings.length,
-        children: [],
+  // Custom event: node collapse toggle
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { nodeId, collapsed } = (e as CustomEvent).detail as {
+        nodeId: string;
+        collapsed: boolean;
       };
-      setNodes((prev) => [...prev, newNode]);
-      setSelectedId(newNode.id);
-      setEditingId(newNode.id);
+      store.updateNode(nodeId, { isCollapsed: collapsed });
+
+      const descendants = collectDescendantIds(nodeId, store.nodes);
+      store.setNodes(
+        store.nodes.map((n) =>
+          descendants.includes(n.id) ? { ...n, hidden: collapsed } : n
+        )
+      );
+    };
+    window.addEventListener('mindmap:node-collapse', handler);
+    return () => window.removeEventListener('mindmap:node-collapse', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.nodes]);
+
+  const scheduleSave = useCallback(
+    (nodeId: string, data: Partial<{ label: string; positionX: number; positionY: number }>) => {
+      setSaveStatus('unsaved');
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(async () => {
+        setSaveStatus('saving');
+        try {
+          const res = await fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          if (!res.ok) throw new Error('save failed');
+          setSaveStatus('saved');
+          store.setDirty(false);
+        } catch {
+          setSaveStatus('unsaved');
+          toast.error('No se pudo guardar el nodo');
+        }
+      }, SAVE_DEBOUNCE_MS);
+    },
+    [mindmapId, store]
+  );
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange<Node<MindmapNodeData>>[]) => {
+      const updated = applyNodeChanges(changes, store.nodes) as Node<MindmapNodeData>[];
+      store.setNodes(updated);
+
+      // Persist position changes
+      const posChanges = changes.filter((c) => c.type === 'position' && !c.dragging);
+      posChanges.forEach((c) => {
+        if (c.type === 'position' && c.position) {
+          scheduleSave(c.id, {
+            positionX: Math.round(c.position.x),
+            positionY: Math.round(c.position.y),
+          });
+        }
+      });
+    },
+    [store, scheduleSave]
+  );
+
+  const onEdgesChange = useCallback(
+    (changes: EdgeChange[]) => {
+      store.setEdges(applyEdgeChanges(changes, store.edges));
+    },
+    [store]
+  );
+
+  const onConnect = useCallback(
+    (connection: Connection) => {
+      store.setEdges(
+        addEdge(
+          {
+            ...connection,
+            type: 'smoothstep',
+            style: { stroke: 'var(--color-border, #e2e8f0)', strokeWidth: 2 },
+          },
+          store.edges
+        )
+      );
+    },
+    [store]
+  );
+
+  const onSelectionChange = useCallback(
+    ({ nodes: selected }: { nodes: Node[] }) => {
+      store.setSelectedNodeIds(selected.map((n) => n.id));
+    },
+    [store]
+  );
+
+  const handleAddNode = useCallback(
+    async (parentId: string | null, opts?: { asSibling?: boolean }) => {
+      let resolvedParentId = parentId;
+
+      if (opts?.asSibling && parentId) {
+        const parent = store.nodes.find((n) => n.id === parentId);
+        resolvedParentId = parent?.data.parentNodeId ?? null;
+      }
+
+      const parentNode = resolvedParentId
+        ? store.nodes.find((n) => n.id === resolvedParentId)
+        : null;
+
+      const siblings = store.nodes.filter(
+        (n) => n.data.parentNodeId === resolvedParentId
+      );
+      const tempId = crypto.randomUUID();
+      const position = {
+        x: (parentNode?.position.x ?? 0) + 200,
+        y: (parentNode?.position.y ?? 0) + siblings.length * 60,
+      };
+
+      const newNode: Node<MindmapNodeData> = {
+        id: tempId,
+        type: 'mindmapNode',
+        position,
+        data: {
+          label: 'Nuevo nodo',
+          parentNodeId: resolvedParentId,
+          nodeType: resolvedParentId ? 'leaf' : 'root',
+          color: parentNode?.data.color ?? '#94a3b8',
+          isEditing: true,
+        },
+      };
+
+      store.addNode(newNode);
+      store.setSelectedNodeIds([tempId]);
+
+      if (resolvedParentId) {
+        const newEdge: Edge = {
+          id: `e-${resolvedParentId}-${tempId}`,
+          source: resolvedParentId,
+          target: tempId,
+          type: 'smoothstep',
+          style: { stroke: 'var(--color-border, #e2e8f0)', strokeWidth: 2 },
+        };
+        store.setEdges([...store.edges, newEdge]);
+      }
+
       try {
         const res = await fetch(`/api/mindmaps/${mindmapId}/nodes`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            parentNodeId: parentId,
-            label: newNode.label,
-            color: newNode.color,
-            positionX: newNode.positionX,
-            positionY: newNode.positionY,
-            nodeOrder: newNode.nodeOrder,
+            label: 'Nuevo nodo',
+            parentNodeId: resolvedParentId,
+            orderInParent: siblings.length,
+            positionX: Math.round(position.x),
+            positionY: Math.round(position.y),
           }),
         });
-        if (!res.ok) throw new Error("Error al crear nodo");
-        const { node: created } = (await res.json()) as { node: MindmapNode };
-        setNodes((prev) => prev.map((n) => (n.id === newNode.id ? { ...n, id: created.id } : n)));
-        setSelectedId(created.id);
-        setEditingId(created.id);
+        if (!res.ok) throw new Error('create failed');
+        const { node: created } = (await res.json()) as { node: { id: string } };
+
+        // Replace temp id with real id
+        store.setNodes(
+          store.nodes.map((n) =>
+            n.id === tempId ? { ...n, id: created.id, data: { ...n.data, isEditing: false } } : n
+          )
+        );
+        store.setEdges(
+          store.edges.map((e) => ({
+            ...e,
+            id: e.id === `e-${resolvedParentId}-${tempId}` ? `e-${resolvedParentId}-${created.id}` : e.id,
+            target: e.target === tempId ? created.id : e.target,
+            source: e.source === tempId ? created.id : e.source,
+          }))
+        );
+        store.setSelectedNodeIds([created.id]);
       } catch {
-        toast.error("No se pudo crear el nodo");
-        setNodes((prev) => prev.filter((n) => n.id !== newNode.id));
+        toast.error('No se pudo crear el nodo');
+        store.setNodes(store.nodes.filter((n) => n.id !== tempId));
+        store.setEdges(store.edges.filter((e) => !e.id.includes(tempId)));
       }
     },
-    [nodes, mindmapId]
+    [mindmapId, store]
   );
 
   const handleDeleteNode = useCallback(
-    async (nodeId: string) => {
-      const node = nodes.find((n) => n.id === nodeId);
+    async (nodeId: string, withBranch = false) => {
+      const node = store.nodes.find((n) => n.id === nodeId);
       if (!node) return;
-      const isRoot = !node.parentNodeId;
-      if (isRoot) {
-        toast.error("No se puede eliminar el nodo raíz");
+      if (!node.data.parentNodeId) {
+        toast.error('No se puede eliminar el nodo raíz');
         return;
       }
-      function collectDescendants(id: string, all: MindmapNode[]): string[] {
-        const children = all.filter((n) => n.parentNodeId === id);
-        return [id, ...children.flatMap((c) => collectDescendants(c.id, all))];
+
+      const toDelete = withBranch
+        ? [nodeId, ...collectDescendantIds(nodeId, store.nodes)]
+        : [nodeId];
+
+      const hasChildren = store.nodes.some((n) => n.data.parentNodeId === nodeId);
+      if (!withBranch && hasChildren) {
+        const ok = window.confirm(
+          'Este nodo tiene hijos. ¿Eliminar solo este nodo? Los hijos quedarán huérfanos.'
+        );
+        if (!ok) return;
       }
-      const toDelete = new Set(collectDescendants(nodeId, nodes));
-      setNodes((prev) => prev.filter((n) => !toDelete.has(n.id)));
-      setSelectedId(null);
+
+      store.setNodes(store.nodes.filter((n) => !toDelete.includes(n.id)));
+      store.setEdges(
+        store.edges.filter(
+          (e) => !toDelete.includes(e.source) && !toDelete.includes(e.target)
+        )
+      );
+      store.setSelectedNodeIds([]);
+
       try {
-        const res = await fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, { method: "DELETE" });
-        if (!res.ok) throw new Error("Error al eliminar");
+        const res = await fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) throw new Error('delete failed');
       } catch {
-        toast.error("No se pudo eliminar el nodo");
-        setNodes(nodes);
+        toast.error('No se pudo eliminar el nodo');
       }
     },
-    [nodes, mindmapId]
+    [mindmapId, store]
   );
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (editingId) {
-        if (e.key === "Enter" || e.key === "Tab") {
-          e.preventDefault();
-          handleLabelBlur(editingId);
-          handleAddChild(editingId);
-        }
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      const isInput =
+        active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+      if (isInput) return;
+
+      const metaOrCtrl = e.metaKey || e.ctrlKey;
+      const selectedId = store.selectedNodeIds[0] ?? null;
+
+      if (e.key === '?') {
+        e.preventDefault();
+        setShowShortcuts((s) => !s);
         return;
       }
+
+      if (metaOrCtrl && e.key === '0') {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('mindmap:fitview'));
+        return;
+      }
+
+      if (metaOrCtrl && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        store.undo();
+        return;
+      }
+
+      if (metaOrCtrl && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        store.redo();
+        return;
+      }
+
       if (!selectedId) return;
-      if (e.key === "Backspace" || e.key === "Delete") {
+
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        handleAddNode(selectedId);
+        return;
+      }
+
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleAddNode(selectedId, { asSibling: true });
+        return;
+      }
+
+      if (e.key === ' ') {
+        e.preventDefault();
+        store.updateNode(selectedId, { isEditing: true });
+        return;
+      }
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault();
         handleDeleteNode(selectedId);
+        return;
       }
-      if (e.key === "Escape") {
-        setSelectedId(null);
-      }
-    },
-    [editingId, selectedId, handleLabelBlur, handleAddChild, handleDeleteNode]
-  );
 
+      if (e.key === 'Escape') {
+        store.setSelectedNodeIds([]);
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [store, handleAddNode, handleDeleteNode]);
+
+  // Fit view shortcut
   useEffect(() => {
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleKeyDown]);
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setTransform((prev) => {
-      const newScale = Math.max(0.5, Math.min(2, prev.scale * delta));
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return { ...prev, scale: newScale };
-      const mouseX = e.clientX - rect.left;
-      const mouseY = e.clientY - rect.top;
-      const dx = (mouseX - prev.x) * (newScale / prev.scale - 1);
-      const dy = (mouseY - prev.y) * (newScale / prev.scale - 1);
-      return { x: prev.x - dx, y: prev.y - dy, scale: newScale };
-    });
+    const handler = () => {
+      window.dispatchEvent(new CustomEvent('reactflow:fitview'));
+    };
+    window.addEventListener('mindmap:fitview', handler);
+    return () => window.removeEventListener('mindmap:fitview', handler);
   }, []);
 
-  const handleCanvasMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.button !== 0) return;
-      if ((e.target as HTMLElement).closest("[data-mindmap-node]")) return;
-      setSelectedId(null);
-      setEditingId(null);
-      panRef.current = {
-        startX: e.clientX,
-        startY: e.clientY,
-        originX: transform.x,
-        originY: transform.y,
-      };
+  // Context menu
+  const onNodeContextMenu = useCallback(
+    (e: React.MouseEvent, node: Node<MindmapNodeData>) => {
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY, nodeId: node.id });
     },
-    [transform]
+    []
   );
 
-  const handleNodeMouseDown = useCallback(
-    (e: React.MouseEvent, nodeId: string) => {
-      if (readOnly) return;
-      e.stopPropagation();
-      if (editingId === nodeId) return;
-      const node = nodes.find((n) => n.id === nodeId);
+  const handleContextChangeColor = useCallback(
+    (nodeId: string, color: string) => {
+      const newStyleJsonb = {
+        ...(store.nodes.find((n) => n.id === nodeId)?.data.styleJsonb ?? {}),
+        borderColor: color,
+        fillColor: color,
+      };
+      store.updateNode(nodeId, { color, styleJsonb: newStyleJsonb });
+      // Persist color + styleJsonb directly (scheduleSave only handles label/position)
+      fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ color, styleJsonb: newStyleJsonb }),
+      }).catch(() => toast.error('No se pudo guardar el color'));
+    },
+    [mindmapId, store]
+  );
+
+  const handleContextChangeShape = useCallback(
+    (nodeId: string, shape: 'rounded' | 'circle' | 'diamond' | 'rect') => {
+      const newStyleJsonb = {
+        ...(store.nodes.find((n) => n.id === nodeId)?.data.styleJsonb ?? {}),
+        shape,
+      };
+      store.updateNode(nodeId, { styleJsonb: newStyleJsonb });
+      // Persist styleJsonb to server
+      fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ styleJsonb: newStyleJsonb }),
+      }).catch(() => toast.error('No se pudo guardar la forma'));
+    },
+    [mindmapId, store]
+  );
+
+  const handleContextToggleCollapse = useCallback(
+    (nodeId: string) => {
+      const node = store.nodes.find((n) => n.id === nodeId);
       if (!node) return;
-      isDraggingNode.current = false;
-      dragRef.current = {
-        nodeId,
-        startX: e.clientX,
-        startY: e.clientY,
-        originX: node.positionX,
-        originY: node.positionY,
-      };
-    },
-    [nodes, editingId, readOnly]
-  );
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (dragRef.current) {
-        const dx = (e.clientX - dragRef.current.startX) / transform.scale;
-        const dy = (e.clientY - dragRef.current.startY) / transform.scale;
-        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) isDraggingNode.current = true;
-        if (isDraggingNode.current) {
-          const { nodeId, originX, originY } = dragRef.current;
-          setNodes((prev) =>
-            prev.map((n) =>
-              n.id === nodeId
-                ? { ...n, positionX: originX + dx, positionY: originY + dy }
-                : n
-            )
-          );
-        }
-      } else if (panRef.current) {
-        const dx = e.clientX - panRef.current.startX;
-        const dy = e.clientY - panRef.current.startY;
-        setTransform((prev) => ({
-          ...prev,
-          x: panRef.current!.originX + dx,
-          y: panRef.current!.originY + dy,
-        }));
-      }
-    },
-    [transform.scale]
-  );
-
-  const handleMouseUp = useCallback(
-    (e: React.MouseEvent) => {
-      if (dragRef.current && isDraggingNode.current) {
-        const { nodeId } = dragRef.current;
-        const node = nodes.find((n) => n.id === nodeId);
-        if (node) saveNodePosition(nodeId, node.positionX, node.positionY);
-      }
-      dragRef.current = null;
-      panRef.current = null;
-      isDraggingNode.current = false;
-    },
-    [nodes, saveNodePosition]
-  );
-
-  const treeRoots = buildTree(nodes);
-  const allFlat = flattenTree(treeRoots);
-
-  function renderEdges() {
-    const edges: React.ReactNode[] = [];
-    nodes.forEach((node) => {
-      if (!node.parentNodeId) return;
-      const parent = nodes.find((n) => n.id === node.parentNodeId);
-      if (!parent) return;
-      const x1 = parent.positionX;
-      const y1 = parent.positionY;
-      const x2 = node.positionX;
-      const y2 = node.positionY;
-      const mx = (x1 + x2) / 2;
-      const d = `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`;
-      edges.push(
-        <path
-          key={`${parent.id}-${node.id}`}
-          d={d}
-          fill="none"
-          stroke={EDGE_COLOR}
-          strokeWidth={2}
-          strokeLinecap="round"
-          opacity={0.7}
-        />
+      const collapsed = !node.data.isCollapsed;
+      window.dispatchEvent(
+        new CustomEvent('mindmap:node-collapse', { detail: { nodeId, collapsed } })
       );
-    });
-    return edges;
-  }
+    },
+    [store.nodes]
+  );
 
-  const xs = nodes.map((n) => n.positionX);
-  const ys = nodes.map((n) => n.positionY);
-  const svgMinX = (Math.min(...xs) || 0) - 150;
-  const svgMinY = (Math.min(...ys) || 0) - 150;
-  const svgW = (Math.max(...xs) || 0) - svgMinX + 300;
-  const svgH = (Math.max(...ys) || 0) - svgMinY + 300;
+  // Export
+  const handleExport = useCallback(
+    async (format: 'png' | 'svg' | 'markdown' | 'opml') => {
+      if (format === 'markdown') {
+        const md = nodesToMarkdown(store.nodes, store.edges);
+        const blob = new Blob([md], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'mindmap.md';
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      if (format === 'opml') {
+        const opml = nodesToOpml(store.nodes, store.edges);
+        const blob = new Blob([opml], { type: 'text/xml' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'mindmap.opml';
+        a.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      const el = flowRef.current?.querySelector('.react-flow__viewport') as HTMLElement;
+      if (!el) {
+        toast.error('No se pudo exportar');
+        return;
+      }
+
+      try {
+        if (format === 'png') {
+          const dataUrl = await toPng(el, { backgroundColor: '#fff', pixelRatio: 2 });
+          const a = document.createElement('a');
+          a.href = dataUrl;
+          a.download = 'mindmap.png';
+          a.click();
+        } else {
+          const dataUrl = await toSvg(el, { backgroundColor: '#fff' });
+          const a = document.createElement('a');
+          a.href = dataUrl;
+          a.download = 'mindmap.svg';
+          a.click();
+        }
+      } catch {
+        toast.error('No se pudo exportar la imagen');
+      }
+    },
+    [store.nodes, store.edges]
+  );
+
+  // AI actions — each action maps to its own endpoint
+  const handleAiAction = useCallback(
+    async (action: 'expand' | 'summarize' | 'brainstorm' | 'convert-to-plan') => {
+      setAiMode(action);
+      setAiPanelOpen(true);
+      setAiLoading(true);
+      setExpandResult(null);
+      setSummarizeResult(null);
+      setConvertResult(null);
+
+      const selectedId = store.selectedNodeIds[0] ?? null;
+
+      try {
+        if (action === 'expand') {
+          // expand streams a JSON array as plain text
+          const res = await fetch(`/api/mindmaps/${mindmapId}/ai/expand`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nodeId: selectedId, count: 5 }),
+          });
+          if (!res.ok) throw new Error('AI request failed');
+          const text = await res.text();
+          // Parse streamed JSON array (may be wrapped in markdown code fence)
+          const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ?? text.match(/(\[[\s\S]*\])/);
+          const jsonText = jsonMatch?.[1] ? jsonMatch[1].trim() : text.trim();
+          const suggestions = JSON.parse(jsonText) as string[];
+          setExpandResult({
+            suggestions: suggestions.map((s: string, i: number) => ({
+              id: String(i),
+              label: s,
+              accepted: true,
+            })),
+          });
+        } else if (action === 'summarize') {
+          const res = await fetch(`/api/mindmaps/${mindmapId}/ai/summarize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nodeId: selectedId }),
+          });
+          if (!res.ok) throw new Error('AI request failed');
+          const data = (await res.json()) as { summary: string };
+          setSummarizeResult({ text: data.summary });
+        } else if (action === 'brainstorm') {
+          const res = await fetch(`/api/mindmaps/${mindmapId}/ai/brainstorm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ objective: store.nodes.find((n) => n.id === selectedId)?.data.label ?? 'Ideas' }),
+          });
+          if (!res.ok) throw new Error('AI request failed');
+          // brainstorm streams a JSON tree — consume but don't use result in panel
+          await res.text();
+        } else if (action === 'convert-to-plan') {
+          const res = await fetch(`/api/mindmaps/${mindmapId}/ai/convert-to-plan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+          });
+          if (!res.ok) throw new Error('AI request failed');
+          const data = (await res.json()) as { plan: { epics: { label: string; nodeId: string; tasks: { label: string; nodeId: string; subtasks: { label: string; nodeId: string }[] }[] }[] } };
+          // Map plan epics → AiConvertResult tasks
+          const tasks = (data.plan?.epics ?? []).map((epic, i) => ({
+            id: epic.nodeId ?? String(i),
+            title: epic.label,
+            children: epic.tasks?.map((t) => ({ id: t.nodeId ?? t.label, title: t.label })) ?? [],
+          }));
+          setConvertResult({ tasks });
+        }
+      } catch {
+        toast.error('No se pudo procesar la acción AI');
+        setAiPanelOpen(false);
+      } finally {
+        setAiLoading(false);
+      }
+    },
+    [mindmapId, store.selectedNodeIds, store.nodes]
+  );
+
+  const handleAcceptExpand = useCallback(
+    async (labels: string[]) => {
+      const parentId = store.selectedNodeIds[0] ?? null;
+      for (const label of labels) {
+        // Create each node via API directly with the correct label
+        const siblings = store.nodes.filter((n) => n.data.parentNodeId === parentId);
+        const parentNode = parentId ? store.nodes.find((n) => n.id === parentId) : null;
+        const position = {
+          x: (parentNode?.position.x ?? 0) + 200,
+          y: (parentNode?.position.y ?? 0) + siblings.length * 60,
+        };
+        try {
+          const res = await fetch(`/api/mindmaps/${mindmapId}/nodes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              label,
+              parentNodeId: parentId,
+              orderInParent: siblings.length,
+              positionX: Math.round(position.x),
+              positionY: Math.round(position.y),
+            }),
+          });
+          if (!res.ok) throw new Error('create failed');
+          const { node: created } = (await res.json()) as { node: { id: string } };
+          const newNode: Node<MindmapNodeData> = {
+            id: created.id,
+            type: 'mindmapNode',
+            position,
+            data: {
+              label,
+              parentNodeId: parentId,
+              nodeType: 'leaf',
+              color: parentNode?.data.color ?? '#94a3b8',
+              isEditing: false,
+            },
+          };
+          store.addNode(newNode);
+          if (parentId) {
+            store.setEdges([...store.edges, {
+              id: `e-${parentId}-${created.id}`,
+              source: parentId,
+              target: created.id,
+              type: 'smoothstep',
+              style: { stroke: 'var(--color-border, #e2e8f0)', strokeWidth: 2 },
+            }]);
+          }
+        } catch {
+          toast.error(`No se pudo crear el nodo: ${label}`);
+        }
+      }
+      setAiPanelOpen(false);
+    },
+    [mindmapId, store]
+  );
+
+  const handleAcceptSummarize = useCallback(
+    (text: string) => {
+      const nodeId = store.selectedNodeIds[0];
+      if (nodeId) {
+        store.updateNode(nodeId, { contentMd: text });
+        // Persist content to server (scheduleSave only handles label/position)
+        fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text || null }),
+        }).catch(() => toast.error('No se pudo guardar el contenido'));
+      }
+      setAiPanelOpen(false);
+    },
+    [mindmapId, store]
+  );
+
+  const handleMaterializePlan = useCallback(
+    async (tasks: AiConvertResult['tasks']) => {
+      toast.info(`Materializando ${tasks.length} tareas...`);
+      setAiPanelOpen(false);
+    },
+    []
+  );
+
+  const selectedNodeId = store.selectedNodeIds[0] ?? null;
+  const selectedNode = selectedNodeId ? store.nodes.find((n) => n.id === selectedNodeId) : null;
+
+  const themeClass = THEME_CLASSES[store.theme] ?? THEME_CLASSES.light;
+
+  const bgVariant =
+    store.theme === 'blueprint'
+      ? BackgroundVariant.Lines
+      : BackgroundVariant.Dots;
+
+  const bgColor =
+    store.theme === 'dark'
+      ? '#1f2937'
+      : store.theme === 'blueprint'
+      ? '#1e40af'
+      : store.theme === 'sepia'
+      ? '#c2a06a'
+      : '#e5e7eb';
 
   return (
     <div className="relative w-full h-full flex flex-col bg-surface overflow-hidden rounded-xl border border-border">
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border bg-background flex-shrink-0 z-10 flex-wrap">
-        <button
-          onClick={() => setTransform((t) => ({ ...t, scale: Math.min(2, t.scale * 1.2) }))}
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
-          title="Zoom in"
-        >
-          <ZoomIn className="w-4 h-4" />
-        </button>
-        <button
-          onClick={() => setTransform((t) => ({ ...t, scale: Math.max(0.5, t.scale * 0.8) }))}
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
-          title="Zoom out"
-        >
-          <ZoomOut className="w-4 h-4" />
-        </button>
-        <button
-          onClick={handleFitToScreen}
-          className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
-          title="Ajustar pantalla"
-        >
-          <Maximize2 className="w-4 h-4" />
-        </button>
-        <div className="w-px h-4 bg-border mx-0.5" />
-        {!readOnly && selectedId && (
-          <button
-            onClick={() => handleAddChild(selectedId)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors min-h-[2rem]"
-            title="Agregar nodo hijo"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Add child</span>
-          </button>
-        )}
-        {!readOnly && selectedId && (
-          <button
-            onClick={() => handleDeleteNode(selectedId)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-danger hover:bg-danger/10 transition-colors min-h-[2rem]"
-            title="Eliminar nodo"
-          >
-            <Minus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Eliminar</span>
-          </button>
-        )}
-        <div className="ml-auto text-xs text-text-muted">
-          {nodes.length} nodo{nodes.length !== 1 ? "s" : ""}
-        </div>
-      </div>
+      <MindmapToolbar
+        mindmapId={mindmapId}
+        canEdit={canEdit}
+        saveStatus={saveStatus}
+        selectedNodeId={selectedNodeId}
+        onAiAction={handleAiAction}
+        onExport={handleExport}
+      />
 
-      <div
-        ref={containerRef}
-        className={cn(
-          "flex-1 relative overflow-hidden touch-none",
-          panRef.current ? "cursor-grabbing" : "cursor-grab"
-        )}
-        style={{ touchAction: "none" }}
-        onMouseDown={handleCanvasMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
-      >
-        <div
-          style={{
-            transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
-            transformOrigin: "0 0",
-            position: "absolute",
-            width: 0,
-            height: 0,
+      <div ref={flowRef} className={cn('flex-1 relative', themeClass)}>
+        <ReactFlow
+          nodes={store.nodes}
+          edges={store.edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={canEdit ? onConnect : undefined}
+          onSelectionChange={onSelectionChange}
+          onNodeContextMenu={onNodeContextMenu}
+          onPaneClick={() => {
+            store.setSelectedNodeIds([]);
+            setContextMenu(null);
           }}
+          fitView
+          fitViewOptions={{ padding: 0.15 }}
+          nodesDraggable={canEdit}
+          nodesConnectable={canEdit}
+          elementsSelectable={true}
+          deleteKeyCode={null} // handled manually
+          multiSelectionKeyCode="Shift"
+          selectionKeyCode="Shift"
+          panOnDrag={[1, 2]}
+          zoomOnScroll
+          minZoom={0.2}
+          maxZoom={3}
+          className="w-full h-full"
         >
-          <svg
-            style={{
-              position: "absolute",
-              left: svgMinX,
-              top: svgMinY,
-              width: svgW,
-              height: svgH,
-              pointerEvents: "none",
-              overflow: "visible",
+          <Background variant={bgVariant} color={bgColor} gap={24} size={1} />
+          <Controls showInteractive={false} className="!bottom-4 !left-4" />
+          <MiniMap
+            className="!bottom-4 !right-4"
+            nodeColor={(n) => {
+              const data = n.data as MindmapNodeData;
+              return data.styleJsonb?.fillColor ?? data.color ?? '#94a3b8';
             }}
-            viewBox={`${svgMinX} ${svgMinY} ${svgW} ${svgH}`}
-          >
-            {renderEdges()}
-          </svg>
+            maskColor={
+              store.theme === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.6)'
+            }
+          />
+        </ReactFlow>
 
-          <AnimatePresence>
-            {allFlat.map((node) => (
-              <div
-                key={node.id}
-                data-mindmap-node="true"
-                onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-                style={{ position: "absolute", left: 0, top: 0 }}
-              >
-                <MindmapNodeComponent
-                  node={node}
-                  isSelected={selectedId === node.id}
-                  isEditing={editingId === node.id}
-                  onSelect={(id) => {
-                    if (!isDraggingNode.current) setSelectedId(id);
-                  }}
-                  onDoubleClick={(id) => {
-                    if (!readOnly) {
-                      setSelectedId(id);
-                      setEditingId(id);
-                    }
-                  }}
-                  onLabelChange={handleLabelChange}
-                  onLabelBlur={handleLabelBlur}
-                  depth={getDepth(node.id, nodes)}
-                />
-              </div>
-            ))}
-          </AnimatePresence>
-        </div>
+        {/* AI Panel */}
+        <MindmapAiPanel
+          open={aiPanelOpen}
+          mode={aiMode}
+          isLoading={aiLoading}
+          expandResult={expandResult}
+          summarizeResult={summarizeResult}
+          convertResult={convertResult}
+          onClose={() => setAiPanelOpen(false)}
+          onAcceptExpand={handleAcceptExpand}
+          onAcceptSummarize={handleAcceptSummarize}
+          onMaterializePlan={handleMaterializePlan}
+        />
 
-        {nodes.length === 0 && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-text-muted gap-2">
+        {/* Context menu */}
+        {contextMenu && (
+          <MindmapContextMenu
+            position={{ x: contextMenu.x, y: contextMenu.y }}
+            nodeId={contextMenu.nodeId}
+            isRoot={
+              !store.nodes.find((n) => n.id === contextMenu.nodeId)?.data.parentNodeId
+            }
+            isCollapsed={
+              store.nodes.find((n) => n.id === contextMenu.nodeId)?.data.isCollapsed ?? false
+            }
+            onClose={() => setContextMenu(null)}
+            onEdit={(nodeId) => store.updateNode(nodeId, { isEditing: true })}
+            onAddChild={(nodeId) => handleAddNode(nodeId)}
+            onAddSibling={(nodeId) => handleAddNode(nodeId, { asSibling: true })}
+            onChangeColor={handleContextChangeColor}
+            onChangeShape={handleContextChangeShape}
+            onLinkTask={(nodeId) => toast.info(`Linkear tarea a ${nodeId} — próximamente`)}
+            onConvertToTask={(nodeId) => toast.info(`Convertir ${nodeId} a tarea — próximamente`)}
+            onToggleCollapse={handleContextToggleCollapse}
+            onDeleteNode={(nodeId) => handleDeleteNode(nodeId, false)}
+            onDeleteBranch={(nodeId) => handleDeleteNode(nodeId, true)}
+          />
+        )}
+
+        {/* Empty state */}
+        {store.nodes.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-text-muted gap-3 pointer-events-none">
             <span className="text-sm">El mapa mental está vacío</span>
-            {!readOnly && (
+            {canEdit && (
               <button
-                onClick={async () => {
-                  const newNode: MindmapNode = {
-                    id: generateId(),
-                    mindmapId,
-                    parentNodeId: null,
-                    label: "Idea central",
-                    content: null,
-                    color: "#94a3b8",
-                    positionX: 0,
-                    positionY: 0,
-                    nodeOrder: 0,
-                    children: [],
-                  };
-                  setNodes([newNode]);
-                  setSelectedId(newNode.id);
-                  setEditingId(newNode.id);
-                  try {
-                    const res = await fetch(`/api/mindmaps/${mindmapId}/nodes`, {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ label: newNode.label, color: newNode.color, positionX: 0, positionY: 0, nodeOrder: 0 }),
-                    });
-                    if (!res.ok) throw new Error();
-                    const { node: created } = (await res.json()) as { node: MindmapNode };
-                    setNodes([{ ...newNode, id: created.id }]);
-                    setSelectedId(created.id);
-                    setEditingId(created.id);
-                  } catch {
-                    toast.error("No se pudo crear el nodo raíz");
-                    setNodes([]);
-                  }
-                }}
-                className="text-xs px-3 py-1.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
+                className="pointer-events-auto text-xs px-3 py-1.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
+                onClick={() => handleAddNode(null)}
               >
                 + Crear nodo raíz
               </button>
@@ -601,6 +940,42 @@ export default function MindmapCanvas({ mindmapId, initialNodes, readOnly = fals
           </div>
         )}
       </div>
+
+      <MindmapShortcutsPanel
+        open={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+      />
+
+      {/* Keyboard hint */}
+      {!showShortcuts && (
+        <button
+          onClick={() => setShowShortcuts(true)}
+          className="absolute bottom-16 right-4 z-20 w-7 h-7 rounded-full bg-background border border-border text-text-muted hover:text-text text-xs flex items-center justify-center shadow-sm transition-colors"
+          title="Atajos de teclado (?)"
+        >
+          ?
+        </button>
+      )}
+
+      {/* Selected node info */}
+      {selectedNode && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+          <div className="bg-background/90 backdrop-blur-sm border border-border rounded-lg px-3 py-1.5 text-xs text-text-muted shadow-sm">
+            {selectedNode.data.label}
+            {selectedNode.data.linkedTaskId && (
+              <span className="ml-2 text-accent">• Tarea linkeada</span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+export default function MindmapCanvas(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <MindmapCanvasInner {...props} />
+    </ReactFlowProvider>
   );
 }

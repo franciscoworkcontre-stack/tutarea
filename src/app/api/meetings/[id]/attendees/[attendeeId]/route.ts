@@ -39,11 +39,13 @@ export async function PUT(
   const body = (await request.json()) as Partial<{
     rsvp: string;
     role: string;
+    informedAfter: boolean;
   }>;
 
   const updateData: Record<string, unknown> = {};
   if (body.rsvp !== undefined) updateData["rsvp"] = body.rsvp;
   if (body.role !== undefined) updateData["role"] = body.role;
+  if (body.informedAfter !== undefined) updateData["informedAfter"] = body.informedAfter;
 
   if (Object.keys(updateData).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });

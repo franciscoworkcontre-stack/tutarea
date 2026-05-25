@@ -1,8 +1,37 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { tasks, workspaceMembers } from "@/db/schema";
+import { tasks, taskStatuses, workspaceMembers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
+
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+
+  const task = await db.query.tasks.findFirst({
+    where: eq(tasks.id, id),
+    with: { status: true },
+  });
+
+  if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const member = await db.query.workspaceMembers.findFirst({
+    where: and(
+      eq(workspaceMembers.workspaceId, task.workspaceId),
+      eq(workspaceMembers.userId, user.id)
+    ),
+  });
+
+  if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  return NextResponse.json({ task });
+}
 
 export async function PATCH(
   request: Request,

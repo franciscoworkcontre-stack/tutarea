@@ -2,10 +2,10 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { UserPlus, X } from "lucide-react";
+import { UserPlus, X, AlertTriangle, Check, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn, getInitials, spring } from "@/lib/utils";
-import type { MeetingAttendee } from "@/lib/meetings/meeting-utils";
+import type { MeetingAttendee } from "@/lib/meetings/meeting-types";
 import type { InferSelectModel } from "drizzle-orm";
 import type { profiles } from "@/db/schema";
 
@@ -15,7 +15,7 @@ type Member = { userId: string; role: string; profile: Profile | null };
 type AttendeeRole = MeetingAttendee["role"];
 type AttendeeRsvp = MeetingAttendee["rsvp"];
 
-type AttendeeWithProfile = MeetingAttendee & { profile?: Member["profile"] };
+type AttendeeWithProfile = MeetingAttendee & { profile?: Profile | null };
 
 type Props = {
   meetingId: string;
@@ -26,26 +26,35 @@ type Props = {
 };
 
 const ROLE_LABELS: Record<AttendeeRole, string> = {
-  facilitator:    "Facilitador",
-  scribe:         "Secretario",
+  facilitator: "Facilitador",
+  scribe: "Secretario",
   decision_maker: "Decisor",
-  contributor:    "Contribuidor",
-  optional:       "Opcional",
+  contributor: "Contribuidor",
+  optional: "Opcional",
 };
 
 const RSVP_STYLES: Record<AttendeeRsvp, string> = {
-  pending:   "bg-surface-2 text-text-subtle border-border",
-  accepted:  "bg-green-500/10 text-green-400 border-green-500/20",
-  declined:  "bg-red-500/10 text-red-400 border-red-500/20",
+  pending: "bg-surface-2 text-text-subtle border-border",
+  accepted: "bg-green-500/10 text-green-400 border-green-500/20",
+  declined: "bg-red-500/10 text-red-400 border-red-500/20",
   tentative: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
 };
 
 const RSVP_LABELS: Record<AttendeeRsvp, string> = {
-  pending:   "Pendiente",
-  accepted:  "Aceptado",
-  declined:  "Rechazado",
+  pending: "Pendiente",
+  accepted: "Aceptado",
+  declined: "Rechazado",
   tentative: "Tentativo",
 };
+
+const AVATAR_COLORS = [
+  "bg-blue-500/20 text-blue-400",
+  "bg-purple-500/20 text-purple-400",
+  "bg-green-500/20 text-green-400",
+  "bg-orange-500/20 text-orange-400",
+  "bg-pink-500/20 text-pink-400",
+  "bg-cyan-500/20 text-cyan-400",
+];
 
 export default function AttendeeManager({
   meetingId,
@@ -54,26 +63,47 @@ export default function AttendeeManager({
   currentUserId,
   onUpdate,
 }: Props) {
-  const [attendees, setAttendees] = useState<AttendeeWithProfile[]>(initialAttendees);
+  const [attendees, setAttendees] =
+    useState<AttendeeWithProfile[]>(initialAttendees);
   const [showPicker, setShowPicker] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
       if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
         setShowPicker(false);
+        setSearchQuery("");
       }
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  useEffect(() => {
+    if (showPicker) setTimeout(() => searchRef.current?.focus(), 50);
+  }, [showPicker]);
+
   const attendeeUserIds = new Set(attendees.map((a) => a.userId));
-  const available = members.filter((m) => !attendeeUserIds.has(m.userId));
+  const available = members.filter(
+    (m) =>
+      !attendeeUserIds.has(m.userId) &&
+      (!searchQuery ||
+        m.profile?.fullName
+          ?.toLowerCase()
+          .includes(searchQuery.toLowerCase()) ||
+        m.userId.includes(searchQuery))
+  );
+
+  const decisionMakers = attendees.filter(
+    (a) => a.role === "decision_maker"
+  ).length;
 
   const handleAdd = async (member: Member) => {
     setShowPicker(false);
+    setSearchQuery("");
     try {
       const res = await fetch(`/api/meetings/${meetingId}/attendees`, {
         method: "POST",
@@ -82,7 +112,10 @@ export default function AttendeeManager({
       });
       if (!res.ok) throw new Error();
       const body = (await res.json()) as { attendee: MeetingAttendee };
-      const enriched: AttendeeWithProfile = { ...body.attendee, profile: member.profile };
+      const enriched: AttendeeWithProfile = {
+        ...body.attendee,
+        profile: member.profile,
+      };
       const next = [...attendees, enriched];
       setAttendees(next);
       onUpdate(next);
@@ -95,24 +128,81 @@ export default function AttendeeManager({
   const handleRoleChange = async (attendeeId: string, role: AttendeeRole) => {
     const prev = attendees.find((a) => a.id === attendeeId);
     if (!prev) return;
-    const next = attendees.map((a) => (a.id === attendeeId ? { ...a, role } : a));
+    const next = attendees.map((a) =>
+      a.id === attendeeId ? { ...a, role } : a
+    );
     setAttendees(next);
     onUpdate(next);
     setSaving(attendeeId);
     try {
-      const res = await fetch(`/api/meetings/${meetingId}/attendees/${attendeeId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role }),
-      });
+      const res = await fetch(
+        `/api/meetings/${meetingId}/attendees/${attendeeId}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role }),
+        }
+      );
       if (!res.ok) throw new Error();
     } catch {
-      const reverted = attendees.map((a) => (a.id === attendeeId ? prev : a));
+      const reverted = attendees.map((a) =>
+        a.id === attendeeId ? prev : a
+      );
       setAttendees(reverted);
       onUpdate(reverted);
       toast.error("Error al actualizar rol");
     } finally {
       setSaving(null);
+    }
+  };
+
+  const handleRsvpChange = async (attendeeId: string, rsvp: AttendeeRsvp) => {
+    const prev = attendees.find((a) => a.id === attendeeId);
+    if (!prev) return;
+    const next = attendees.map((a) =>
+      a.id === attendeeId ? { ...a, rsvp } : a
+    );
+    setAttendees(next);
+    onUpdate(next);
+    try {
+      await fetch(`/api/meetings/${meetingId}/attendees/${attendeeId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rsvp }),
+      });
+    } catch {
+      const reverted = attendees.map((a) =>
+        a.id === attendeeId ? prev : a
+      );
+      setAttendees(reverted);
+      onUpdate(reverted);
+      toast.error("Error al actualizar RSVP");
+    }
+  };
+
+  const handleInformedChange = async (
+    attendeeId: string,
+    informedAfter: boolean
+  ) => {
+    const prev = attendees.find((a) => a.id === attendeeId);
+    if (!prev) return;
+    const next = attendees.map((a) =>
+      a.id === attendeeId ? { ...a, informedAfter } : a
+    );
+    setAttendees(next);
+    onUpdate(next);
+    try {
+      await fetch(`/api/meetings/${meetingId}/attendees/${attendeeId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ informedAfter }),
+      });
+    } catch {
+      const reverted = attendees.map((a) =>
+        a.id === attendeeId ? prev : a
+      );
+      setAttendees(reverted);
+      onUpdate(reverted);
     }
   };
 
@@ -122,9 +212,10 @@ export default function AttendeeManager({
     setAttendees(next);
     onUpdate(next);
     try {
-      const res = await fetch(`/api/meetings/${meetingId}/attendees/${attendeeId}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/meetings/${meetingId}/attendees/${attendeeId}`,
+        { method: "DELETE" }
+      );
       if (!res.ok) throw new Error();
     } catch {
       setAttendees(prev);
@@ -133,8 +224,11 @@ export default function AttendeeManager({
     }
   };
 
+  const myAttendee = attendees.find((a) => a.userId === currentUserId);
+
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-text-muted">
           Asistentes ({attendees.length})
@@ -142,35 +236,53 @@ export default function AttendeeManager({
         <div ref={pickerRef} className="relative">
           <button
             onClick={() => setShowPicker((v) => !v)}
-            disabled={available.length === 0}
-            className="flex items-center gap-1 text-xs text-text-subtle hover:text-text-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 text-xs text-text-subtle hover:text-text-muted transition-colors"
           >
             <UserPlus className="w-3.5 h-3.5" />
             Agregar
           </button>
           <AnimatePresence>
-            {showPicker && available.length > 0 && (
+            {showPicker && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: -4 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95, y: -4 }}
                 transition={spring}
-                className="absolute top-full right-0 mt-1.5 w-52 bg-surface border border-border rounded-xl shadow-3 z-50 overflow-hidden"
+                className="absolute top-full right-0 mt-1.5 w-56 bg-surface border border-border rounded-xl shadow-3 z-50 overflow-hidden"
               >
+                <div className="p-2 border-b border-border">
+                  <input
+                    ref={searchRef}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Buscar por nombre..."
+                    className="w-full text-xs bg-background border border-border rounded-lg px-2.5 py-1.5 outline-none focus:border-accent placeholder:text-text-subtle"
+                  />
+                </div>
                 <div className="max-h-48 overflow-y-auto">
-                  {available.map((m) => (
-                    <button
-                      key={m.userId}
-                      type="button"
-                      onClick={() => handleAdd(m)}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-surface-2 transition-colors"
-                    >
-                      <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent flex-shrink-0">
-                        {getInitials(m.profile?.fullName ?? "?")}
-                      </div>
-                      <span className="truncate">{m.profile?.fullName ?? m.userId.slice(0, 8)}</span>
-                    </button>
-                  ))}
+                  {available.length === 0 ? (
+                    <p className="text-xs text-text-subtle px-3 py-3 text-center">
+                      {searchQuery
+                        ? "Sin resultados"
+                        : "Todos los miembros ya están"}
+                    </p>
+                  ) : (
+                    available.map((m) => (
+                      <button
+                        key={m.userId}
+                        type="button"
+                        onClick={() => handleAdd(m)}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-surface-2 transition-colors"
+                      >
+                        <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent flex-shrink-0">
+                          {getInitials(m.profile?.fullName ?? "?")}
+                        </div>
+                        <span className="truncate text-xs">
+                          {m.profile?.fullName ?? m.userId.slice(0, 8)}
+                        </span>
+                      </button>
+                    ))
+                  )}
                 </div>
               </motion.div>
             )}
@@ -178,11 +290,47 @@ export default function AttendeeManager({
         </div>
       </div>
 
-      <div className="flex flex-col gap-1">
+      {/* Decision makers warning */}
+      {decisionMakers > 8 && (
+        <div className="flex items-start gap-2 px-2.5 py-2 bg-orange-500/10 border border-orange-500/20 rounded-lg">
+          <AlertTriangle className="w-3.5 h-3.5 text-orange-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-orange-400">
+            Más de 8 decisores puede dificultar el consenso. Considera reducir a
+            los decisores clave.
+          </p>
+        </div>
+      )}
+
+      {/* My RSVP actions */}
+      {myAttendee && (
+        <div className="flex items-center gap-1.5 p-2 bg-surface rounded-lg border border-border">
+          <span className="text-[10px] text-text-subtle mr-1">Tu respuesta:</span>
+          {(["accepted", "declined", "tentative"] as AttendeeRsvp[]).map(
+            (rsvp) => (
+              <button
+                key={rsvp}
+                onClick={() => handleRsvpChange(myAttendee.id, rsvp)}
+                className={cn(
+                  "text-[10px] px-1.5 py-0.5 rounded-full border font-medium transition-all",
+                  myAttendee.rsvp === rsvp
+                    ? RSVP_STYLES[rsvp]
+                    : "bg-transparent border-border text-text-subtle hover:bg-surface-2"
+                )}
+              >
+                {rsvp === "accepted" ? "Acepto" : rsvp === "declined" ? "No puedo" : "Quizás"}
+              </button>
+            )
+          )}
+        </div>
+      )}
+
+      {/* Attendees list */}
+      <div className="flex flex-col gap-0.5">
         <AnimatePresence initial={false}>
-          {attendees.map((a) => {
+          {attendees.map((a, idx) => {
             const isCurrentUser = a.userId === currentUserId;
             const name = a.profile?.fullName ?? a.userId.slice(0, 8);
+            const avatarColor = AVATAR_COLORS[idx % AVATAR_COLORS.length]!;
 
             return (
               <motion.div
@@ -194,26 +342,51 @@ export default function AttendeeManager({
                 transition={spring}
                 className={cn(
                   "group flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-surface/50 transition-colors",
-                  saving === a.id && "opacity-60"
+                  saving === a.id && "opacity-60",
+                  a.informedAfter && "opacity-70"
                 )}
               >
-                <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent flex-shrink-0">
+                {/* Avatar */}
+                <div
+                  className={cn(
+                    "w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0",
+                    avatarColor
+                  )}
+                >
                   {getInitials(name)}
                 </div>
 
+                {/* Name + role */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">{name}</p>
+                  <div className="flex items-center gap-1">
+                    <p className="text-xs font-medium truncate">{name}</p>
+                    {isCurrentUser && (
+                      <span className="text-[10px] text-text-subtle">(tú)</span>
+                    )}
+                    {a.informedAfter && (
+                      <span className="text-[10px] text-text-subtle bg-surface-2 px-1 py-0.5 rounded">
+                        Informado
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={a.role}
-                    onChange={(e) => handleRoleChange(a.id, e.target.value as AttendeeRole)}
-                    className="text-[10px] text-text-muted bg-transparent outline-none cursor-pointer border-none"
+                    onChange={(e) =>
+                      handleRoleChange(a.id, e.target.value as AttendeeRole)
+                    }
+                    className="text-[10px] text-text-muted bg-transparent outline-none cursor-pointer border-none mt-0.5"
                   >
-                    {(Object.entries(ROLE_LABELS) as [AttendeeRole, string][]).map(([k, v]) => (
-                      <option key={k} value={k}>{v}</option>
+                    {(
+                      Object.entries(ROLE_LABELS) as [AttendeeRole, string][]
+                    ).map(([k, v]) => (
+                      <option key={k} value={k}>
+                        {v}
+                      </option>
                     ))}
                   </select>
                 </div>
 
+                {/* RSVP badge */}
                 <span
                   className={cn(
                     "text-[10px] px-1.5 py-0.5 rounded-full border font-medium flex-shrink-0",
@@ -223,6 +396,27 @@ export default function AttendeeManager({
                   {RSVP_LABELS[a.rsvp]}
                 </span>
 
+                {/* Informed after toggle */}
+                <button
+                  onClick={() =>
+                    handleInformedChange(a.id, !a.informedAfter)
+                  }
+                  title={
+                    a.informedAfter
+                      ? "Solo recibe recap (no asiste)"
+                      : "Marcar como solo informado"
+                  }
+                  className={cn(
+                    "opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded flex-shrink-0",
+                    a.informedAfter
+                      ? "text-accent"
+                      : "text-text-subtle hover:text-text-muted"
+                  )}
+                >
+                  <HelpCircle className="w-3 h-3" />
+                </button>
+
+                {/* Remove */}
                 {!isCurrentUser && (
                   <button
                     onClick={() => handleRemove(a.id)}
@@ -243,6 +437,16 @@ export default function AttendeeManager({
           </p>
         )}
       </div>
+
+      {/* Legend */}
+      {attendees.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="text-[10px] text-text-subtle">
+            <Check className="w-2.5 h-2.5 inline mr-0.5 text-green-400" />
+            Hover para opciones adicionales
+          </span>
+        </div>
+      )}
     </div>
   );
 }
