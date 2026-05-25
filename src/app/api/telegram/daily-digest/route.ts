@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { workspaceTelegramGroups, workspaceMembers, tasks, taskStatuses, profiles } from "@/db/schema";
 import { eq, and, isNull, lt } from "drizzle-orm";
-import { sendTelegramMessage } from "../webhook/route";
+import { sendTelegramMessage } from "@/lib/telegram";
 
 const WEEKDAYS_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MONTHS_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];

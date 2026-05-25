@@ -72,21 +72,7 @@ async function parseTaskWithClaude(text: string): Promise<ParsedTask> {
   return JSON.parse(content.text) as ParsedTask;
 }
 
-async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: unknown) {
-  const token = process.env["TELEGRAM_BOT_TOKEN"];
-  if (!token) return;
-
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      parse_mode: "Markdown",
-      reply_markup: replyMarkup,
-    }),
-  });
-}
+import { sendTelegramMessage } from "@/lib/telegram";
 
 async function handleGroupMessage(message: NonNullable<TelegramUpdate["message"]>) {
   const chatId = message.chat.id;
