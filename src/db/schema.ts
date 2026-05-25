@@ -772,3 +772,323 @@ export const meetingDecisionsRelations = relations(meetingDecisions, ({ one }) =
   meeting: one(meetings, { fields: [meetingDecisions.meetingId], references: [meetings.id] }),
   meetingNote: one(meetingNotes, { fields: [meetingDecisions.meetingNoteId], references: [meetingNotes.id] }),
 }));
+
+// ─── NEW FEATURES ────────────────────────────────────────────────────────────
+
+// Enums for new features
+export const sprintStatusEnum = pgEnum("sprint_status", [
+  "planned", "active", "completed", "cancelled",
+]);
+
+export const goalStatusEnum = pgEnum("goal_status", [
+  "draft", "active", "at_risk", "achieved", "cancelled",
+]);
+
+export const keyResultTypeEnum = pgEnum("key_result_type", [
+  "number", "percentage", "boolean", "task_count",
+]);
+
+export const recurrenceFrequencyEnum = pgEnum("recurrence_frequency", [
+  "daily", "weekly", "monthly", "yearly",
+]);
+
+export const automationTriggerEnum = pgEnum("automation_trigger", [
+  "task_created", "task_status_changed", "task_assigned", "task_due_date",
+  "task_priority_changed", "task_completed", "sprint_started", "sprint_completed",
+]);
+
+export const automationActionTypeEnum = pgEnum("automation_action_type", [
+  "change_status", "assign_task", "set_priority", "add_label",
+  "send_notification", "create_task", "move_to_sprint",
+]);
+
+export const dashboardWidgetTypeEnum = pgEnum("dashboard_widget_type", [
+  "tasks_by_status", "tasks_by_assignee", "tasks_by_priority",
+  "burndown_chart", "velocity_chart", "overdue_tasks",
+  "recently_completed", "workload", "sprint_progress", "goal_progress",
+]);
+
+export const formFieldTypeEnum = pgEnum("form_field_type", [
+  "short_text", "long_text", "select", "multi_select",
+  "date", "number", "checkbox", "email",
+]);
+
+// ── Feature 2: Time Tracking ─────────────────────────────────────────────────
+export const timeEntries = pgTable("time_entries", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  taskId: uuid("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  description: text("description"),
+  durationMinutes: integer("duration_minutes").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  isRunning: boolean("is_running").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("time_entries_task_idx").on(t.taskId), index("time_entries_user_idx").on(t.userId)]);
+
+export const timeEntriesRelations = relations(timeEntries, ({ one }) => ({
+  task: one(tasks, { fields: [timeEntries.taskId], references: [tasks.id] }),
+}));
+
+// ── Feature 8: Recurring Tasks ───────────────────────────────────────────────
+export const taskRecurrence = pgTable("task_recurrence", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  taskId: uuid("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }).unique(),
+  frequency: recurrenceFrequencyEnum("frequency").notNull(),
+  interval: integer("interval").notNull().default(1),
+  daysOfWeek: jsonb("days_of_week").$type<number[]>(),
+  dayOfMonth: integer("day_of_month"),
+  endDate: timestamp("end_date", { withTimezone: true }),
+  maxOccurrences: integer("max_occurrences"),
+  occurrenceCount: integer("occurrence_count").notNull().default(0),
+  nextOccurrenceAt: timestamp("next_occurrence_at", { withTimezone: true }),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const taskRecurrenceRelations = relations(taskRecurrence, ({ one }) => ({
+  task: one(tasks, { fields: [taskRecurrence.taskId], references: [tasks.id] }),
+}));
+
+// ── Feature 3: Sprints ───────────────────────────────────────────────────────
+export const sprints = pgTable("sprints", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  goal: text("goal"),
+  status: sprintStatusEnum("status").notNull().default("planned"),
+  startDate: timestamp("start_date", { withTimezone: true }),
+  endDate: timestamp("end_date", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  velocity: integer("velocity"),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("sprints_project_idx").on(t.projectId)]);
+
+export const sprintTasks = pgTable("sprint_tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sprintId: uuid("sprint_id").notNull().references(() => sprints.id, { onDelete: "cascade" }),
+  taskId: uuid("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  addedBy: uuid("added_by").notNull(),
+  storyPoints: integer("story_points"),
+}, (t) => [uniqueIndex("sprint_tasks_sprint_task_idx").on(t.sprintId, t.taskId)]);
+
+export const sprintsRelations = relations(sprints, ({ one, many }) => ({
+  project: one(projects, { fields: [sprints.projectId], references: [projects.id] }),
+  workspace: one(workspaces, { fields: [sprints.workspaceId], references: [workspaces.id] }),
+  sprintTasks: many(sprintTasks),
+}));
+
+export const sprintTasksRelations = relations(sprintTasks, ({ one }) => ({
+  sprint: one(sprints, { fields: [sprintTasks.sprintId], references: [sprints.id] }),
+  task: one(tasks, { fields: [sprintTasks.taskId], references: [tasks.id] }),
+}));
+
+// ── Feature 4: Goals / OKRs ──────────────────────────────────────────────────
+export const goals = pgTable("goals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  ownerUserId: uuid("owner_user_id").notNull(),
+  status: goalStatusEnum("status").notNull().default("draft"),
+  startDate: timestamp("start_date", { withTimezone: true }),
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  progress: integer("progress").notNull().default(0),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("goals_workspace_idx").on(t.workspaceId)]);
+
+export const keyResults = pgTable("key_results", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  goalId: uuid("goal_id").notNull().references(() => goals.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  type: keyResultTypeEnum("type").notNull().default("number"),
+  startValue: real("start_value").notNull().default(0),
+  targetValue: real("target_value").notNull().default(100),
+  currentValue: real("current_value").notNull().default(0),
+  unit: text("unit"),
+  linkedProjectId: uuid("linked_project_id").references(() => projects.id, { onDelete: "set null" }),
+  ownerUserId: uuid("owner_user_id"),
+  dueDate: timestamp("due_date", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("key_results_goal_idx").on(t.goalId)]);
+
+export const goalsRelations = relations(goals, ({ one, many }) => ({
+  workspace: one(workspaces, { fields: [goals.workspaceId], references: [workspaces.id] }),
+  project: one(projects, { fields: [goals.projectId], references: [projects.id] }),
+  keyResults: many(keyResults),
+}));
+
+export const keyResultsRelations = relations(keyResults, ({ one }) => ({
+  goal: one(goals, { fields: [keyResults.goalId], references: [goals.id] }),
+  linkedProject: one(projects, { fields: [keyResults.linkedProjectId], references: [projects.id] }),
+}));
+
+// ── Feature 10: Portfolio View ───────────────────────────────────────────────
+export const portfolios = pgTable("portfolios", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  color: text("color").notNull().default("#6366f1"),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("portfolios_workspace_idx").on(t.workspaceId)]);
+
+export const portfolioProjects = pgTable("portfolio_projects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  portfolioId: uuid("portfolio_id").notNull().references(() => portfolios.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  addedBy: uuid("added_by").notNull(),
+}, (t) => [uniqueIndex("portfolio_projects_idx").on(t.portfolioId, t.projectId)]);
+
+export const portfoliosRelations = relations(portfolios, ({ one, many }) => ({
+  workspace: one(workspaces, { fields: [portfolios.workspaceId], references: [workspaces.id] }),
+  portfolioProjects: many(portfolioProjects),
+}));
+
+export const portfolioProjectsRelations = relations(portfolioProjects, ({ one }) => ({
+  portfolio: one(portfolios, { fields: [portfolioProjects.portfolioId], references: [portfolios.id] }),
+  project: one(projects, { fields: [portfolioProjects.projectId], references: [projects.id] }),
+}));
+
+// ── Feature 1: Dashboards & Reporting ────────────────────────────────────────
+export const dashboards = pgTable("dashboards", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("dashboards_workspace_idx").on(t.workspaceId)]);
+
+export const dashboardWidgets = pgTable("dashboard_widgets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  dashboardId: uuid("dashboard_id").notNull().references(() => dashboards.id, { onDelete: "cascade" }),
+  type: dashboardWidgetTypeEnum("type").notNull(),
+  title: text("title").notNull(),
+  configJsonb: jsonb("config_jsonb").$type<Record<string, unknown>>().notNull().default({}),
+  positionX: integer("position_x").notNull().default(0),
+  positionY: integer("position_y").notNull().default(0),
+  width: integer("width").notNull().default(2),
+  height: integer("height").notNull().default(2),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("dashboard_widgets_dashboard_idx").on(t.dashboardId)]);
+
+export const dashboardsRelations = relations(dashboards, ({ one, many }) => ({
+  workspace: one(workspaces, { fields: [dashboards.workspaceId], references: [workspaces.id] }),
+  project: one(projects, { fields: [dashboards.projectId], references: [projects.id] }),
+  widgets: many(dashboardWidgets),
+}));
+
+export const dashboardWidgetsRelations = relations(dashboardWidgets, ({ one }) => ({
+  dashboard: one(dashboards, { fields: [dashboardWidgets.dashboardId], references: [dashboards.id] }),
+}));
+
+// ── Feature 9: Forms / Intake ─────────────────────────────────────────────────
+export const forms = pgTable("forms", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  slug: text("slug").notNull().unique(),
+  fieldsJsonb: jsonb("fields_jsonb").$type<Array<{
+    id: string; type: string; label: string; required: boolean;
+    options?: string[]; placeholder?: string;
+  }>>().notNull().default([]),
+  defaultPriority: taskPriorityEnum("default_priority").default("no_priority"),
+  defaultStatusId: uuid("default_status_id"),
+  defaultAssigneeId: uuid("default_assignee_id"),
+  isPublic: boolean("is_public").notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
+  submissionCount: integer("submission_count").notNull().default(0),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("forms_project_idx").on(t.projectId)]);
+
+export const formSubmissions = pgTable("form_submissions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  formId: uuid("form_id").notNull().references(() => forms.id, { onDelete: "cascade" }),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  dataJsonb: jsonb("data_jsonb").$type<Record<string, unknown>>().notNull().default({}),
+  submitterEmail: text("submitter_email"),
+  submitterName: text("submitter_name"),
+  convertedTaskId: uuid("converted_task_id").references(() => tasks.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("pending"),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  reviewedBy: uuid("reviewed_by"),
+}, (t) => [index("form_submissions_form_idx").on(t.formId)]);
+
+export const formsRelations = relations(forms, ({ one, many }) => ({
+  project: one(projects, { fields: [forms.projectId], references: [projects.id] }),
+  workspace: one(workspaces, { fields: [forms.workspaceId], references: [workspaces.id] }),
+  submissions: many(formSubmissions),
+}));
+
+export const formSubmissionsRelations = relations(formSubmissions, ({ one }) => ({
+  form: one(forms, { fields: [formSubmissions.formId], references: [forms.id] }),
+  project: one(projects, { fields: [formSubmissions.projectId], references: [projects.id] }),
+  convertedTask: one(tasks, { fields: [formSubmissions.convertedTaskId], references: [tasks.id] }),
+}));
+
+// ── Feature 6: Automations ───────────────────────────────────────────────────
+export const automations = pgTable("automations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  triggerType: automationTriggerEnum("trigger_type").notNull(),
+  triggerConfigJsonb: jsonb("trigger_config_jsonb").$type<Record<string, unknown>>().notNull().default({}),
+  conditionsJsonb: jsonb("conditions_jsonb").$type<Array<{
+    field: string; operator: string; value: unknown;
+  }>>().notNull().default([]),
+  actionsJsonb: jsonb("actions_jsonb").$type<Array<{
+    type: string; config: Record<string, unknown>;
+  }>>().notNull().default([]),
+  isActive: boolean("is_active").notNull().default(true),
+  runCount: integer("run_count").notNull().default(0),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("automations_project_idx").on(t.projectId)]);
+
+export const automationRuns = pgTable("automation_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  automationId: uuid("automation_id").notNull().references(() => automations.id, { onDelete: "cascade" }),
+  triggeredBy: uuid("triggered_by"),
+  triggerPayloadJsonb: jsonb("trigger_payload_jsonb").$type<Record<string, unknown>>().default({}),
+  status: text("status").notNull().default("success"),
+  errorMessage: text("error_message"),
+  actionsExecuted: integer("actions_executed").notNull().default(0),
+  runAt: timestamp("run_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("automation_runs_automation_idx").on(t.automationId)]);
+
+export const automationsRelations = relations(automations, ({ one, many }) => ({
+  project: one(projects, { fields: [automations.projectId], references: [projects.id] }),
+  workspace: one(workspaces, { fields: [automations.workspaceId], references: [workspaces.id] }),
+  runs: many(automationRuns),
+}));
+
+export const automationRunsRelations = relations(automationRuns, ({ one }) => ({
+  automation: one(automations, { fields: [automationRuns.automationId], references: [automations.id] }),
+}));

@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { tasks, taskStatuses, workspaceMembers } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { tasks, taskStatuses, taskRecurrence, workspaceMembers } from "@/db/schema";
+import { eq, and, asc } from "drizzle-orm";
+import { runAutomations } from "@/lib/automations/automation-engine";
+import { generateKeyBetween } from "fractional-indexing";
+import {
+  calculateNextOccurrence,
+  shouldCreateNextOccurrence,
+  cloneTaskForRecurrence,
+} from "@/lib/recurrence/recurrence-utils";
 
 export async function GET(
   _request: Request,
@@ -87,6 +94,129 @@ export async function PATCH(
     .set(updateData)
     .where(eq(tasks.id, id))
     .returning();
+
+  if (!updated) return NextResponse.json({ error: "Update failed" }, { status: 500 });
+
+  // ── Auto-trigger recurrence when task becomes "done" ─────────────────────
+  if (body.statusId !== undefined && body.statusId !== task.statusId) {
+    // Check if the new status is of type "done"
+    const newStatus = await db.query.taskStatuses.findFirst({
+      where: eq(taskStatuses.id, body.statusId ?? ""),
+    });
+
+    if (newStatus?.type === "done") {
+      const recurrence = await db.query.taskRecurrence.findFirst({
+        where: eq(taskRecurrence.taskId, id),
+      });
+
+      if (
+        recurrence?.isActive &&
+        shouldCreateNextOccurrence({
+          endDate: recurrence.endDate,
+          maxOccurrences: recurrence.maxOccurrences,
+          occurrenceCount: recurrence.occurrenceCount,
+        })
+      ) {
+        const nextDue = recurrence.nextOccurrenceAt ?? new Date();
+
+        // Get first status for project
+        const firstStatus = await db.query.taskStatuses.findFirst({
+          where: eq(taskStatuses.projectId, task.projectId),
+          orderBy: [asc(taskStatuses.position)],
+        });
+
+        // Generate unique key
+        const existingTasks = await db.query.tasks.findMany({
+          where: eq(tasks.projectId, task.projectId),
+        });
+        const keyPrefix = task.key.split("-").slice(0, -1).join("-");
+        const taskKey = `${keyPrefix}-${existingTasks.length + 1}`;
+
+        const cloned = cloneTaskForRecurrence(
+          task,
+          nextDue,
+          taskKey,
+          generateKeyBetween(null, null),
+          firstStatus?.id ?? null
+        );
+
+        await db.insert(tasks).values(cloned);
+
+        // Advance recurrence
+        const newNextOccurrence = calculateNextOccurrence(
+          nextDue,
+          recurrence.frequency,
+          recurrence.interval,
+          recurrence.daysOfWeek as number[] | undefined,
+          recurrence.dayOfMonth ?? undefined
+        );
+
+        const newCount = recurrence.occurrenceCount + 1;
+        const willBeExhausted = !shouldCreateNextOccurrence({
+          endDate: recurrence.endDate,
+          maxOccurrences: recurrence.maxOccurrences,
+          occurrenceCount: newCount,
+        });
+
+        await db
+          .update(taskRecurrence)
+          .set({
+            occurrenceCount: newCount,
+            nextOccurrenceAt: newNextOccurrence,
+            isActive: !willBeExhausted,
+            updatedAt: new Date(),
+          })
+          .where(eq(taskRecurrence.id, recurrence.id));
+      }
+    }
+  }
+
+  // ── Trigger automations (non-blocking) ───────────────────────────────────
+  const existingTask = task;
+  if (body.statusId !== undefined && body.statusId !== existingTask.statusId) {
+    void runAutomations(
+      {
+        type: "task_status_changed",
+        projectId: updated.projectId,
+        workspaceId: updated.workspaceId,
+        taskId: updated.id,
+        triggeredBy: user.id,
+        payload: {
+          oldStatusId: existingTask.statusId,
+          newStatusId: body.statusId,
+        },
+      },
+      db
+    ).catch(() => {});
+  }
+
+  if (body.assigneeId !== undefined && body.assigneeId !== existingTask.assigneeId) {
+    void runAutomations(
+      {
+        type: "task_assigned",
+        projectId: updated.projectId,
+        workspaceId: updated.workspaceId,
+        taskId: updated.id,
+        triggeredBy: user.id,
+        payload: { assigneeId: body.assigneeId },
+      },
+      db
+    ).catch(() => {});
+  }
+
+  if (body.priority !== undefined && body.priority !== existingTask.priority) {
+    void runAutomations(
+      {
+        type: "task_priority_changed",
+        projectId: updated.projectId,
+        workspaceId: updated.workspaceId,
+        taskId: updated.id,
+        triggeredBy: user.id,
+        payload: { oldPriority: existingTask.priority, newPriority: body.priority },
+      },
+      db
+    ).catch(() => {});
+  }
 
   return NextResponse.json({ task: updated });
 }

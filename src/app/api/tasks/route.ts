@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { tasks, taskStatuses, projects, workspaceMembers } from "@/db/schema";
 import { eq, and, desc, isNull } from "drizzle-orm";
 import { generateKeyBetween } from "fractional-indexing";
+import { runAutomations } from "@/lib/automations/automation-engine";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -100,6 +101,21 @@ export async function POST(request: Request) {
       position: generateKeyBetween(null, null),
     })
     .returning();
+
+  if (!task) return NextResponse.json({ error: "Insert failed" }, { status: 500 });
+
+  // ── Trigger task_created automation (non-blocking) ───────────────────────
+  void runAutomations(
+    {
+      type: "task_created",
+      projectId: task.projectId,
+      workspaceId: task.workspaceId,
+      taskId: task.id,
+      triggeredBy: user.id,
+      payload: { taskId: task.id },
+    },
+    db
+  ).catch(() => {});
 
   return NextResponse.json({ task });
 }

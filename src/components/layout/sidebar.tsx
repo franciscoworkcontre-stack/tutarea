@@ -5,6 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutGrid,
+  LayoutDashboard,
   Inbox,
   CheckSquare,
   Settings,
@@ -18,6 +19,12 @@ import {
   Brain,
   CalendarCheck,
   ListChecks,
+  BarChart2,
+  Layers,
+  Zap,
+  Target,
+  Workflow,
+  ClipboardList,
 } from "lucide-react";
 import { cn, spring } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
@@ -69,8 +76,14 @@ export default function Sidebar({
 
   const mainNav = [
     {
-      href: basePath,
+      href: `${basePath}/dashboard`,
       label: "Dashboard",
+      icon: LayoutDashboard,
+      exact: false,
+    },
+    {
+      href: basePath,
+      label: "Inicio",
       icon: LayoutGrid,
       exact: true,
     },
@@ -83,6 +96,16 @@ export default function Sidebar({
       href: `${basePath}/my-tasks`,
       label: "Mis tareas",
       icon: CheckSquare,
+    },
+    {
+      href: `${basePath}/portfolios`,
+      label: "Portfolios",
+      icon: Layers,
+    },
+    {
+      href: `${basePath}/goals`,
+      label: "Objetivos",
+      icon: Target,
     },
   ];
 
@@ -186,8 +209,12 @@ export default function Sidebar({
                     const active = isActive(href);
                     const projectSubNav = [
                       { href: `${href}/board`, icon: ListChecks, label: "Tareas" },
+                      { href: `${href}/sprints`, icon: Zap, label: "Sprints" },
                       { href: `${href}/mindmaps`, icon: Brain, label: "Mindmaps" },
                       { href: `${href}/meetings`, icon: CalendarCheck, label: "Reuniones" },
+                      { href: `${href}/workload`, icon: BarChart2, label: "Carga de trabajo" },
+                      { href: `${href}/automations`, icon: Workflow, label: "Automatizaciones" },
+                      { href: `${href}/forms`, icon: ClipboardList, label: "Formularios" },
                     ];
                     return (
                       <div key={project.id}>
