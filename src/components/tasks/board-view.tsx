@@ -17,7 +17,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { toast } from "sonner";
-import { LayoutGrid, List, GanttChart, Brain, CalendarCheck } from "lucide-react";
+import { LayoutGrid, List, GanttChart } from "lucide-react";
 import { generateKeyBetween } from "fractional-indexing";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -234,8 +234,6 @@ export default function BoardView({
             { href: "board", icon: LayoutGrid, label: "Kanban" },
             { href: "list", icon: List, label: "Lista" },
             { href: "gantt", icon: GanttChart, label: "Gantt" },
-            { href: "mindmaps", icon: Brain, label: "Mindmaps" },
-            { href: "meetings", icon: CalendarCheck, label: "Reuniones" },
           ].map(({ href, icon: Icon, label }) => (
             <Link
               key={href}

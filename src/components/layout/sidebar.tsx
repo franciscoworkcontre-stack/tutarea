@@ -15,6 +15,9 @@ import {
   Plus,
   FolderOpen,
   Shield,
+  Brain,
+  CalendarCheck,
+  ListChecks,
 } from "lucide-react";
 import { cn, spring } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
@@ -200,27 +203,52 @@ export default function Sidebar({
                     {projects.map((project) => {
                       const href = `${basePath}/projects/${project.id}`;
                       const active = isActive(href);
+                      const projectSubNav = [
+                        { href: `${href}/board`, icon: ListChecks, label: "Tareas" },
+                        { href: `${href}/mindmaps`, icon: Brain, label: "Mindmaps" },
+                        { href: `${href}/meetings`, icon: CalendarCheck, label: "Reuniones" },
+                      ];
                       return (
-                        <Link
-                          key={project.id}
-                          href={href}
-                          className={cn(
-                            "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors",
-                            active
-                              ? "bg-accent/10 text-accent font-medium"
-                              : "text-text-muted hover:bg-surface-2 hover:text-text"
-                          )}
-                        >
-                          <div
-                            className="w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
-                            style={{ backgroundColor: project.color }}
+                        <div key={project.id}>
+                          <Link
+                            href={`${href}/board`}
+                            className={cn(
+                              "flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors",
+                              active
+                                ? "bg-accent/10 text-accent font-medium"
+                                : "text-text-muted hover:bg-surface-2 hover:text-text"
+                            )}
                           >
-                            <span className="text-white text-xs font-bold">
-                              {project.key[0]}
-                            </span>
-                          </div>
-                          <span className="truncate">{project.name}</span>
-                        </Link>
+                            <div
+                              className="w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
+                              style={{ backgroundColor: project.color }}
+                            >
+                              <span className="text-white text-xs font-bold">
+                                {project.key[0]}
+                              </span>
+                            </div>
+                            <span className="truncate">{project.name}</span>
+                          </Link>
+                          {active && (
+                            <div className="ml-4 mt-0.5 space-y-0.5 border-l border-border pl-2.5">
+                              {projectSubNav.map(({ href: subHref, icon: SubIcon, label }) => (
+                                <Link
+                                  key={subHref}
+                                  href={subHref}
+                                  className={cn(
+                                    "flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-colors",
+                                    isActive(subHref)
+                                      ? "text-accent font-medium"
+                                      : "text-text-subtle hover:text-text hover:bg-surface-2"
+                                  )}
+                                >
+                                  <SubIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                                  <span>{label}</span>
+                                </Link>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
 

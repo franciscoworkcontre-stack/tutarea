@@ -3,7 +3,7 @@
 import { useState, Fragment } from "react";
 import { useNow } from "@/lib/hooks";
 import Link from "next/link";
-import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, Check, Brain, CalendarCheck } from "lucide-react";
+import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, Check } from "lucide-react";
 import { cn, formatRelativeDate, getInitials } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
 import type { tasks, taskStatuses, projects, profiles } from "@/db/schema";
@@ -141,8 +141,6 @@ export default function ListView({
             { href: "board", icon: LayoutGrid, label: "Kanban" },
             { href: "list", icon: null, label: "Lista" },
             { href: "gantt", icon: GanttChart, label: "Gantt" },
-            { href: "mindmaps", icon: Brain, label: "Mindmaps" },
-            { href: "meetings", icon: CalendarCheck, label: "Reuniones" },
           ].map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
