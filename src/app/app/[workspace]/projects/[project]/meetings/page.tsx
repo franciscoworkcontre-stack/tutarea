@@ -16,35 +16,44 @@ export default async function MeetingsPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  try {
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, projectId),
+    });
 
-  if (!project) redirect(`/app/${workspaceSlug}/projects`);
+    if (!project) redirect(`/app/${workspaceSlug}/projects`);
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+    const member = await db.query.workspaceMembers.findFirst({
+      where: and(
+        eq(workspaceMembers.workspaceId, project.workspaceId),
+        eq(workspaceMembers.userId, user.id)
+      ),
+    });
 
-  if (!member) redirect(`/app/${workspaceSlug}`);
+    if (!member) redirect(`/app/${workspaceSlug}`);
 
-  const projectMeetings = await db.query.meetings.findMany({
-    where: eq(meetings.projectId, projectId),
-    with: { attendees: true },
-  });
+    const projectMeetings = await db.query.meetings.findMany({
+      where: eq(meetings.projectId, projectId),
+      with: { attendees: true },
+    });
 
-  const canCreate = member.role !== "viewer";
+    const canCreate = member.role !== "viewer";
 
-  return (
-    <MeetingList
-      projectId={projectId}
-      workspaceSlug={workspaceSlug}
-      workspaceId={project.workspaceId}
-      initialMeetings={projectMeetings}
-      canCreate={canCreate}
-    />
-  );
+    return (
+      <MeetingList
+        projectId={projectId}
+        workspaceSlug={workspaceSlug}
+        workspaceId={project.workspaceId}
+        initialMeetings={projectMeetings}
+        canCreate={canCreate}
+      />
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return (
+      <div className="p-6 text-sm text-red-400 font-mono whitespace-pre-wrap">
+        Error en Meetings: {message}
+      </div>
+    );
+  }
 }

@@ -16,38 +16,47 @@ export default async function MindmapsPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  try {
+    const project = await db.query.projects.findFirst({
+      where: eq(projects.id, projectId),
+    });
 
-  if (!project) redirect(`/app/${workspaceSlug}/projects`);
+    if (!project) redirect(`/app/${workspaceSlug}/projects`);
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+    const member = await db.query.workspaceMembers.findFirst({
+      where: and(
+        eq(workspaceMembers.workspaceId, project.workspaceId),
+        eq(workspaceMembers.userId, user.id)
+      ),
+    });
 
-  if (!member) redirect(`/app/${workspaceSlug}`);
+    if (!member) redirect(`/app/${workspaceSlug}`);
 
-  const projectMindmaps = await db.query.mindmaps.findMany({
-    where: eq(mindmaps.projectId, projectId),
-    orderBy: [mindmaps.updatedAt],
-  });
+    const projectMindmaps = await db.query.mindmaps.findMany({
+      where: eq(mindmaps.projectId, projectId),
+      orderBy: [mindmaps.updatedAt],
+    });
 
-  const canCreate = member.role === "owner" || member.role === "admin" || member.role === "member";
+    const canCreate = member.role === "owner" || member.role === "admin" || member.role === "member";
 
-  return (
-    <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
-        <MindmapList
-          projectId={projectId}
-          workspaceSlug={workspaceSlug}
-          initialMindmaps={projectMindmaps}
-          canCreate={canCreate}
-        />
+    return (
+      <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-6">
+          <MindmapList
+            projectId={projectId}
+            workspaceSlug={workspaceSlug}
+            initialMindmaps={projectMindmaps}
+            canCreate={canCreate}
+          />
+        </div>
       </div>
-    </div>
-  );
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return (
+      <div className="p-6 text-sm text-red-400 font-mono whitespace-pre-wrap">
+        Error en Mindmaps: {message}
+      </div>
+    );
+  }
 }
