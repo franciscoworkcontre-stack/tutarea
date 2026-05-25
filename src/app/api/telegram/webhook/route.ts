@@ -72,7 +72,7 @@ async function parseTaskWithClaude(text: string): Promise<ParsedTask> {
   return JSON.parse(content.text) as ParsedTask;
 }
 
-export async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: unknown) {
+async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: unknown) {
   const token = process.env["TELEGRAM_BOT_TOKEN"];
   if (!token) return;
 
