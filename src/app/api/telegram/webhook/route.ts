@@ -61,10 +61,15 @@ type UserContext = {
 
 type ProjectRow = typeof projects.$inferSelect;
 
-// ── AI clients ──────────────────────────────────────────────────────────────
+// ── AI clients (lazy — not initialized at module level to avoid build errors) ──
 
-const anthropic = new Anthropic({ apiKey: process.env["ANTHROPIC_API_KEY"] });
-const openai = new OpenAI({ apiKey: process.env["OPENAI_API_KEY"] });
+function getAnthropic() {
+  return new Anthropic({ apiKey: process.env["ANTHROPIC_API_KEY"] });
+}
+
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env["OPENAI_API_KEY"] });
+}
 
 const SYSTEM_PROMPT = `You are a task extractor for a project management tool. The user sends short messages in Spanish (Chilean/Mexican) or English. Extract a single task. Return ONLY valid JSON, no prose.
 
@@ -103,7 +108,7 @@ const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"]!;
 // ── AI helpers ──────────────────────────────────────────────────────────────
 
 async function parseTaskWithClaude(text: string): Promise<ParsedTask> {
-  const response = await anthropic.messages.create({
+  const response = await getAnthropic().messages.create({
     model: "claude-haiku-4-5",
     max_tokens: 512,
     system: SYSTEM_PROMPT,
@@ -124,7 +129,7 @@ async function transcribeVoice(fileId: string): Promise<string> {
   const audioBuffer = await audioRes.arrayBuffer();
   const audioFile = new File([new Blob([audioBuffer], { type: "audio/ogg" })], "voice.ogg", { type: "audio/ogg" });
 
-  const transcription = await openai.audio.transcriptions.create({
+  const transcription = await getOpenAI().audio.transcriptions.create({
     file: audioFile,
     model: "whisper-1",
     language: "es",
