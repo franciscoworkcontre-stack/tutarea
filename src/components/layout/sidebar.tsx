@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -64,10 +65,12 @@ export default function Sidebar({
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [projectMenuOpen, setProjectMenuOpen] = useState<string | null>(null);
+  const [projectMenuPos, setProjectMenuPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleteInput, setDeleteInput] = useState("");
   const [deleting, setDeleting] = useState(false);
   const router = useRouter();
+  const menuBtnRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -249,47 +252,22 @@ export default function Sidebar({
                             <span className="truncate">{project.name}</span>
                           </Link>
                           <button
+                            ref={(el) => { menuBtnRefs.current[project.id] = el; }}
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
-                              setProjectMenuOpen(projectMenuOpen === project.id ? null : project.id);
+                              if (projectMenuOpen === project.id) {
+                                setProjectMenuOpen(null);
+                              } else {
+                                const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                                setProjectMenuPos({ x: rect.right + 4, y: rect.top });
+                                setProjectMenuOpen(project.id);
+                              }
                             }}
                             className="absolute right-1.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded opacity-0 group-hover:opacity-100 hover:bg-surface-2 text-text-muted hover:text-text transition-all"
                           >
                             <MoreHorizontal className="w-3.5 h-3.5" />
                           </button>
-                          {projectMenuOpen === project.id && (
-                            <>
-                              <div className="fixed inset-0 z-40" onClick={() => setProjectMenuOpen(null)} />
-                              <div className="absolute left-full top-0 ml-1 z-50 w-44 bg-background border border-border rounded-lg shadow-lg py-1 text-sm">
-                                <button
-                                  onClick={() => {
-                                    setProjectMenuOpen(null);
-                                    fetch(`/api/projects/${project.id}`, {
-                                      method: "PUT",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({ status: "archived" }),
-                                    }).then(() => router.refresh());
-                                  }}
-                                  className="w-full flex items-center gap-2 px-3 py-2 text-text-muted hover:bg-surface-2 hover:text-text transition-colors"
-                                >
-                                  <Archive className="w-3.5 h-3.5" />
-                                  Archivar
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setProjectMenuOpen(null);
-                                    setDeleteInput("");
-                                    setDeleteConfirm({ id: project.id, name: project.name });
-                                  }}
-                                  className="w-full flex items-center gap-2 px-3 py-2 text-red-500 hover:bg-red-500/10 transition-colors"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  Eliminar proyecto
-                                </button>
-                              </div>
-                            </>
-                          )}
                         </div>
                         {active && (
                           <div className="ml-4 mt-0.5 space-y-0.5 border-l border-border pl-2.5">
@@ -469,6 +447,48 @@ export default function Sidebar({
           />
         )}
       </AnimatePresence>
+
+      {/* Project context menu — rendered via portal to escape overflow-hidden */}
+      {projectMenuOpen && typeof document !== "undefined" && createPortal(
+        <>
+          <div className="fixed inset-0 z-[60]" onClick={() => setProjectMenuOpen(null)} />
+          <div
+            className="fixed z-[61] w-48 bg-background border border-border rounded-lg shadow-xl py-1 text-sm"
+            style={{ left: projectMenuPos.x, top: projectMenuPos.y }}
+          >
+            <button
+              onClick={() => {
+                const id = projectMenuOpen;
+                setProjectMenuOpen(null);
+                fetch(`/api/projects/${id}`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ status: "archived" }),
+                }).then(() => router.refresh()).catch(() => toast.error("No se pudo archivar"));
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-text-muted hover:bg-surface-2 hover:text-text transition-colors"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              Archivar
+            </button>
+            <div className="h-px bg-border mx-2 my-1" />
+            <button
+              onClick={() => {
+                const proj = projects.find((p) => p.id === projectMenuOpen);
+                if (!proj) return;
+                setProjectMenuOpen(null);
+                setDeleteInput("");
+                setDeleteConfirm({ id: proj.id, name: proj.name });
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2 text-red-500 hover:bg-red-500/10 transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Eliminar proyecto
+            </button>
+          </div>
+        </>,
+        document.body
+      )}
 
       {/* Delete project confirmation modal */}
       <AnimatePresence>
