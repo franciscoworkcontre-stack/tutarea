@@ -10,7 +10,7 @@ import {
   workspaces,
   workspaceTelegramGroups,
 } from "@/db/schema";
-import { eq, and, gt, lt, isNull, sql } from "drizzle-orm";
+import { eq, and, gt, lt, isNull } from "drizzle-orm";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { generateKeyBetween } from "fractional-indexing";
@@ -59,6 +59,8 @@ type UserContext = {
   workspaceSlug: string;
 };
 
+type ProjectRow = typeof projects.$inferSelect;
+
 // ── AI clients ──────────────────────────────────────────────────────────────
 
 const anthropic = new Anthropic({ apiKey: process.env["ANTHROPIC_API_KEY"] });
@@ -85,7 +87,7 @@ Rules:
 - If the message is a status update, set intent "status_update"
 - If it's unclear, set intent "unclear" and confidence < 0.4`;
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────
 
 const PRIORITY_EMOJI: Record<string, string> = {
   urgent: "🔴",
@@ -97,6 +99,8 @@ const PRIORITY_EMOJI: Record<string, string> = {
 
 const APP_URL = process.env["NEXT_PUBLIC_APP_URL"] ?? "https://tutarea-tusalarioio.vercel.app";
 const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"]!;
+
+// ── AI helpers ──────────────────────────────────────────────────────────────
 
 async function parseTaskWithClaude(text: string): Promise<ParsedTask> {
   const response = await anthropic.messages.create({
@@ -111,19 +115,15 @@ async function parseTaskWithClaude(text: string): Promise<ParsedTask> {
 }
 
 async function transcribeVoice(fileId: string): Promise<string> {
-  // 1. Get file path from Telegram
   const fileRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
   const fileData = await fileRes.json() as { ok: boolean; result?: { file_path: string } };
   if (!fileData.ok || !fileData.result?.file_path) throw new Error("Could not get file path");
 
-  // 2. Download the OGG audio
   const audioUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${fileData.result.file_path}`;
   const audioRes = await fetch(audioUrl);
   const audioBuffer = await audioRes.arrayBuffer();
-  const audioBlob = new Blob([audioBuffer], { type: "audio/ogg" });
-  const audioFile = new File([audioBlob], "voice.ogg", { type: "audio/ogg" });
+  const audioFile = new File([new Blob([audioBuffer], { type: "audio/ogg" })], "voice.ogg", { type: "audio/ogg" });
 
-  // 3. Transcribe with Whisper
   const transcription = await openai.audio.transcriptions.create({
     file: audioFile,
     model: "whisper-1",
@@ -132,6 +132,8 @@ async function transcribeVoice(fileId: string): Promise<string> {
 
   return transcription.text;
 }
+
+// ── Context helper ──────────────────────────────────────────────────────────
 
 async function getUserContext(chatId: number): Promise<UserContext | null> {
   const profile = await db.query.profiles.findFirst({
@@ -153,34 +155,78 @@ async function getUserContext(chatId: number): Promise<UserContext | null> {
   };
 }
 
-async function createTaskFromParsed(
-  parsed: ParsedTask,
-  ctx: UserContext,
-  messageId: number,
-  projectHint?: string,
-  priority?: string,
-  assigneeId?: string,
-) {
-  const projectList = await db.query.projects.findMany({
-    where: and(eq(projects.workspaceId, ctx.workspaceId), eq(projects.status, "active")),
+// ── Project resolution ──────────────────────────────────────────────────────
+
+async function getActiveProjects(workspaceId: string): Promise<ProjectRow[]> {
+  return db.query.projects.findMany({
+    where: and(eq(projects.workspaceId, workspaceId), eq(projects.status, "active")),
+    orderBy: [projects.updatedAt],
     limit: 10,
   });
+}
 
-  let project = projectList[0];
-  if (projectHint) {
-    const match = projectList.find((p) =>
-      p.name.toLowerCase().includes(projectHint.toLowerCase()),
-    );
-    if (match) project = match;
-  } else if (parsed.project_hint) {
-    const match = projectList.find((p) =>
-      p.name.toLowerCase().includes(parsed.project_hint!.toLowerCase()),
-    );
-    if (match) project = match;
+function resolveProjectFromHint(projectList: ProjectRow[], hint: string | null | undefined): ProjectRow | undefined {
+  if (!hint) return undefined;
+  return projectList.find((p) => p.name.toLowerCase().includes(hint.toLowerCase()));
+}
+
+// ── Project selection keyboard ──────────────────────────────────────────────
+// Saves pending task in telegramInbox and asks user to pick a project.
+// Returns true so the caller knows to stop and wait for callback.
+
+async function askProjectSelection(
+  chatId: number,
+  parsed: ParsedTask,
+  projectList: ProjectRow[],
+  ctx: UserContext,
+  messageId: number,
+  priority: string,
+): Promise<void> {
+  const [inbox] = await db
+    .insert(telegramInbox)
+    .values({
+      userId: ctx.profile.id,
+      messageId: messageId.toString(),
+      type: "text",
+      rawText: parsed.title,
+      parsed: { ...parsed, _priority: priority } as unknown as Record<string, unknown>,
+      status: "pending",
+    })
+    .returning();
+
+  const inboxId = inbox!.id;
+
+  // Telegram limits callback_data to 64 bytes — use short project IDs (UUID is 36 chars)
+  // Format: sp_<inboxId_short>_<projectId_short> won't fit, so we store inboxId in callback
+  // and rely on the full UUID in the DB. We'll use a truncated key: sp_<8chars>_<8chars>
+  const rows: { text: string; callback_data: string }[][] = [];
+  for (let i = 0; i < projectList.length; i += 2) {
+    const pair = projectList.slice(i, i + 2).map((p) => ({
+      text: `📁 ${p.name}`,
+      // sp = select_project; trim UUIDs to first 8 chars (collision risk is acceptable for UX)
+      callback_data: `sp_${inboxId.slice(0, 8)}_${p.id.slice(0, 8)}`,
+    }));
+    rows.push(pair);
   }
+  rows.push([{ text: "❌ Cancelar", callback_data: "dismiss" }]);
 
-  if (!project) return null;
+  await sendTelegramMessage(
+    chatId,
+    `📁 ¿En qué proyecto va esta tarea?\n\n*"${parsed.title}"*`,
+    { inline_keyboard: rows },
+  );
+}
 
+// ── Task creation ───────────────────────────────────────────────────────────
+
+async function createTask(
+  parsed: ParsedTask,
+  project: ProjectRow,
+  ctx: UserContext,
+  messageId: number,
+  priority: string,
+  inboxId?: string,
+) {
   const defaultStatus = await db.query.taskStatuses.findFirst({
     where: eq(taskStatuses.projectId, project.id),
     orderBy: [taskStatuses.position],
@@ -188,8 +234,7 @@ async function createTaskFromParsed(
 
   const taskCount = await db.query.tasks.findMany({ where: eq(tasks.projectId, project.id) });
   const taskKey = `${project.key}-${taskCount.length + 1}`;
-  const finalPriority = (priority ?? parsed.priority ?? "no_priority") as
-    | "no_priority" | "low" | "medium" | "high" | "urgent";
+  const finalPriority = priority as "no_priority" | "low" | "medium" | "high" | "urgent";
 
   const [newTask] = await db
     .insert(tasks)
@@ -203,21 +248,68 @@ async function createTaskFromParsed(
       priority: finalPriority,
       position: generateKeyBetween(null, null),
       createdBy: ctx.profile.id,
-      assigneeId: assigneeId ?? null,
       dueDate: null,
     })
     .returning();
 
-  await db.insert(telegramInbox).values({
-    userId: ctx.profile.id,
-    messageId: messageId.toString(),
-    type: "text",
-    rawText: parsed.title,
-    parsed: parsed as unknown as Record<string, unknown>,
-    status: "converted",
-  });
+  // Update inbox record if it exists, otherwise insert a new one
+  if (inboxId) {
+    await db.update(telegramInbox).set({ status: "converted", taskId: newTask!.id }).where(eq(telegramInbox.id, inboxId));
+  } else {
+    await db.insert(telegramInbox).values({
+      userId: ctx.profile.id,
+      messageId: messageId.toString(),
+      type: "text",
+      rawText: parsed.title,
+      parsed: parsed as unknown as Record<string, unknown>,
+      status: "converted",
+      taskId: newTask!.id,
+    });
+  }
 
-  return { task: newTask!, project, taskKey, priority: finalPriority };
+  return { task: newTask!, taskKey, priority: finalPriority };
+}
+
+// ── Unified "resolve project then create" flow ──────────────────────────────
+// Returns false if it asked the user to pick a project (deferred), true if task was created.
+
+async function resolveAndCreate(
+  chatId: number,
+  parsed: ParsedTask,
+  ctx: UserContext,
+  messageId: number,
+  priority: string,
+  transcript?: string,
+): Promise<boolean> {
+  const projectList = await getActiveProjects(ctx.workspaceId);
+
+  if (projectList.length === 0) {
+    await sendTelegramMessage(chatId, "❌ No hay proyectos activos en tu workspace.");
+    return true;
+  }
+
+  // Try to match hint from Claude parse
+  const matched = resolveProjectFromHint(projectList, parsed.project_hint);
+
+  // Single project → use it directly; hint matched → use it; otherwise ask
+  const project = projectList.length === 1 ? projectList[0]! : matched ?? null;
+
+  if (!project) {
+    // Multiple projects, no clear hint → ask user
+    await askProjectSelection(chatId, parsed, projectList, ctx, messageId, priority);
+    return false;
+  }
+
+  const { task, taskKey } = await createTask(parsed, project, ctx, messageId, priority);
+  const taskUrl = `${APP_URL}/app/${ctx.workspaceSlug}/projects/${project.id}/tasks/${task.id}`;
+  const suffix = transcript ? `\n\n_"${transcript}"_` : "";
+
+  await sendTelegramMessage(
+    chatId,
+    `✅ *${parsed.title}*\n${PRIORITY_EMOJI[priority] ?? "⚪"} ${priority} · 📁 ${project.name}${suffix}`,
+    { inline_keyboard: [[{ text: `📋 Ver ${taskKey}`, url: taskUrl }]] },
+  );
+  return true;
 }
 
 // ── Command handlers ──────────────────────────────────────────────────────────
@@ -251,8 +343,7 @@ async function handleStart(chatId: number, text: string, message: NonNullable<Te
   await sendTelegramMessage(
     chatId,
     `✅ ¡Cuenta vinculada exitosamente, *${profileWithCode.fullName ?? "hola"}*!\n\n` +
-    `Ahora puedes crear tareas directamente desde aquí.\n\n` +
-    `💡 Envíame un audio o texto con lo que necesitas hacer, o usa /help para ver los comandos.`,
+    `Envíame un texto o audio para crear tareas, o usa /help para ver los comandos.`,
   );
 }
 
@@ -274,20 +365,7 @@ async function handleTarea(chatId: number, title: string, ctx: UserContext, mess
     labels: [],
   };
 
-  const result = await createTaskFromParsed(parsed, ctx, messageId);
-  if (!result) {
-    await sendTelegramMessage(chatId, "❌ No hay proyectos activos en tu workspace.");
-    return;
-  }
-
-  const { task, project, taskKey } = result;
-  const taskUrl = `${APP_URL}/app/${ctx.workspaceSlug}/projects/${project.id}/tasks/${task.id}`;
-
-  await sendTelegramMessage(
-    chatId,
-    `✅ *${parsed.title}*\n${PRIORITY_EMOJI[priority]} ${priority} · 📁 ${project.name}`,
-    { inline_keyboard: [[{ text: `📋 Ver ${taskKey}`, url: taskUrl }]] },
-  );
+  await resolveAndCreate(chatId, parsed, ctx, messageId, priority);
 }
 
 async function handleMisTareas(chatId: number, ctx: UserContext) {
@@ -299,7 +377,7 @@ async function handleMisTareas(chatId: number, ctx: UserContext) {
   });
 
   if (myTasks.length === 0) {
-    await sendTelegramMessage(chatId, "🎉 ¡No tienes tareas pendientes asignadas!\n\nUsa /proyectos para ver los proyectos.");
+    await sendTelegramMessage(chatId, "🎉 ¡No tienes tareas pendientes asignadas!");
     return;
   }
 
@@ -330,7 +408,7 @@ async function handleHoy(chatId: number, ctx: UserContext) {
   });
 
   if (todayTasks.length === 0) {
-    await sendTelegramMessage(chatId, `📅 *Hoy no tienes tareas con vencimiento para hoy.*\n\nUsa /mis_tareas para ver tus pendientes.`);
+    await sendTelegramMessage(chatId, `📅 No tienes tareas con vencimiento hoy.\n\nUsa /mis_tareas para ver tus pendientes.`);
     return;
   }
 
@@ -370,10 +448,7 @@ async function handleVencidas(chatId: number, ctx: UserContext) {
 }
 
 async function handleProyectos(chatId: number, ctx: UserContext) {
-  const projectList = await db.query.projects.findMany({
-    where: and(eq(projects.workspaceId, ctx.workspaceId), eq(projects.status, "active")),
-    limit: 15,
-  });
+  const projectList = await getActiveProjects(ctx.workspaceId);
 
   if (projectList.length === 0) {
     await sendTelegramMessage(chatId, "❌ No hay proyectos activos en tu workspace.");
@@ -420,7 +495,7 @@ async function handleHelp(chatId: number) {
     `*Workspace:*\n` +
     `/proyectos — Lista de proyectos activos\n` +
     `/nota _[texto]_ — Guardar nota rápida\n\n` +
-    `💡 También puedes simplemente enviarme un mensaje con lo que necesitas y lo convierto en tarea.`,
+    `💡 También puedes enviarme un mensaje de texto o audio con lo que necesitas.`,
   );
 }
 
@@ -448,7 +523,7 @@ async function handleVoiceMessage(
     return;
   }
 
-  await sendTelegramMessage(chatId, `📝 Escuché: _"${transcript}"_\n\nCreando tarea...`);
+  await sendTelegramMessage(chatId, `📝 Escuché: _"${transcript}"_`);
 
   let parsed: ParsedTask;
   try {
@@ -472,31 +547,16 @@ async function handleVoiceMessage(
       chatId,
       `❓ ¿Crear esto como tarea?\n\n*"${transcript}"*`,
       {
-        inline_keyboard: [
-          [
-            { text: "✅ Sí, crear", callback_data: `confirm_voice_${messageId}_${encodeURIComponent(transcript)}` },
-            { text: "❌ No", callback_data: "dismiss" },
-          ],
-        ],
+        inline_keyboard: [[
+          { text: "✅ Sí, crear", callback_data: `cv_${messageId}_${encodeURIComponent(transcript.slice(0, 30))}` },
+          { text: "❌ No", callback_data: "dismiss" },
+        ]],
       },
     );
     return;
   }
 
-  const result = await createTaskFromParsed(parsed, ctx, messageId);
-  if (!result) {
-    await sendTelegramMessage(chatId, "❌ No hay proyectos activos en tu workspace.");
-    return;
-  }
-
-  const { task, project, taskKey, priority } = result;
-  const taskUrl = `${APP_URL}/app/${ctx.workspaceSlug}/projects/${project.id}/tasks/${task.id}`;
-
-  await sendTelegramMessage(
-    chatId,
-    `✅ *${parsed.title}*\n${PRIORITY_EMOJI[priority]} ${priority} · 📁 ${project.name}\n\n_Transcripción: "${transcript}"_`,
-    { inline_keyboard: [[{ text: `📋 Ver ${taskKey}`, url: taskUrl }]] },
-  );
+  await resolveAndCreate(chatId, parsed, ctx, messageId, parsed.priority || "medium", transcript);
 }
 
 async function handleFreeText(chatId: number, text: string, ctx: UserContext, messageId: number) {
@@ -508,43 +568,28 @@ async function handleFreeText(chatId: number, text: string, ctx: UserContext, me
     return;
   }
 
-  await db.insert(telegramInbox).values({
-    userId: ctx.profile.id,
-    messageId: messageId.toString(),
-    type: "text",
-    rawText: text,
-    parsed: parsed as unknown as Record<string, unknown>,
-    status: "parsed",
-  });
-
   if (parsed.intent === "create_task" && parsed.confidence > 0.6) {
-    const result = await createTaskFromParsed(parsed, ctx, messageId);
-    if (!result) {
-      await sendTelegramMessage(chatId, "❌ No hay proyectos activos en tu workspace.");
-      return;
-    }
-
-    const { task, project, taskKey, priority } = result;
-    const taskUrl = `${APP_URL}/app/${ctx.workspaceSlug}/projects/${project.id}/tasks/${task.id}`;
-
-    await sendTelegramMessage(
-      chatId,
-      `✅ *${parsed.title}*\n${PRIORITY_EMOJI[priority]} ${priority} · 📁 ${project.name}`,
-      { inline_keyboard: [[{ text: `📋 Ver ${taskKey}`, url: taskUrl }]] },
-    );
+    await resolveAndCreate(chatId, parsed, ctx, messageId, parsed.priority || "medium");
   } else {
     await sendTelegramMessage(
       chatId,
       `¿Crear esto como tarea?\n\n*"${text}"*`,
       {
-        inline_keyboard: [
-          [
-            { text: "✅ Sí, crear", callback_data: `confirm_task_${messageId}` },
-            { text: "❌ No", callback_data: "dismiss" },
-          ],
-        ],
+        inline_keyboard: [[
+          { text: "✅ Sí, crear", callback_data: `ct_${messageId}` },
+          { text: "❌ No", callback_data: "dismiss" },
+        ]],
       },
     );
+    // Save pending text for confirmation
+    await db.insert(telegramInbox).values({
+      userId: ctx.profile.id,
+      messageId: messageId.toString(),
+      type: "text",
+      rawText: text,
+      parsed: parsed as unknown as Record<string, unknown>,
+      status: "pending",
+    });
   }
 }
 
@@ -555,31 +600,26 @@ async function handlePrivateMessage(message: NonNullable<TelegramUpdate["message
   const text = message.text ?? "";
   const messageId = message.message_id;
 
-  // Linking flow — no auth required
   if (text.startsWith("/start link_")) {
     await handleStart(chatId, text, message);
     return;
   }
 
-  // Unlinked user
   const ctx = await getUserContext(chatId);
   if (!ctx) {
-    const appUrl = APP_URL;
     await sendTelegramMessage(
       chatId,
-      "👋 ¡Hola! Soy el bot de *tutarea*.\n\nVincula tu cuenta para crear tareas desde aquí. Es solo una vez 👇",
-      { inline_keyboard: [[{ text: "🔐 Vincular mi cuenta", url: `${appUrl}/settings/integrations` }]] },
+      "👋 ¡Hola! Soy el bot de *tutarea*.\n\nVincula tu cuenta para crear tareas desde aquí 👇",
+      { inline_keyboard: [[{ text: "🔐 Vincular mi cuenta", url: `${APP_URL}/settings/integrations` }]] },
     );
     return;
   }
 
-  // Voice note
   if (message.voice) {
     await handleVoiceMessage(chatId, message.voice, ctx, messageId);
     return;
   }
 
-  // Commands
   if (text.startsWith("/tarea ")) {
     await handleTarea(chatId, text.slice(7), ctx, messageId, "medium");
   } else if (text === "/tarea") {
@@ -650,7 +690,6 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
 
   const data = query.data ?? "";
 
-  // Answer callback to remove loading spinner
   await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -662,19 +701,80 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
     return;
   }
 
-  if (data.startsWith("confirm_voice_")) {
-    // confirm_voice_<messageId>_<encodedText>
-    const parts = data.replace("confirm_voice_", "").split("_");
-    const messageId = parseInt(parts[0] ?? "0");
-    const transcript = decodeURIComponent(parts.slice(1).join("_"));
+  const ctx = await getUserContext(chatId);
+  if (!ctx) return;
 
-    const ctx = await getUserContext(chatId);
-    if (!ctx) return;
+  // ── Project selection: sp_<inboxId8>_<projectId8> ──
+  if (data.startsWith("sp_")) {
+    const parts = data.slice(3).split("_");
+    const inboxPrefix = parts[0]!;
+    const projectPrefix = parts[1]!;
+
+    // Find inbox record by prefix match
+    const allInbox = await db.query.telegramInbox.findMany({
+      where: and(eq(telegramInbox.userId, ctx.profile.id), eq(telegramInbox.status, "pending")),
+      orderBy: [telegramInbox.createdAt],
+      limit: 20,
+    });
+    const inbox = allInbox.find((r) => r.id.startsWith(inboxPrefix));
+    if (!inbox) {
+      await sendTelegramMessage(chatId, "❌ No encontré la tarea pendiente. Vuelve a intentarlo.");
+      return;
+    }
+
+    // Find project by prefix match
+    const projectList = await getActiveProjects(ctx.workspaceId);
+    const project = projectList.find((p) => p.id.startsWith(projectPrefix));
+    if (!project) {
+      await sendTelegramMessage(chatId, "❌ No encontré ese proyecto.");
+      return;
+    }
+
+    const inboxParsed = inbox.parsed as Record<string, unknown>;
+    const priority = (inboxParsed["_priority"] as string | undefined) ?? (inboxParsed["priority"] as string | undefined) ?? "medium";
+    const parsed: ParsedTask = {
+      intent: "create_task",
+      confidence: 1,
+      title: (inboxParsed["title"] as string | undefined) ?? inbox.rawText ?? "Nueva tarea",
+      description: (inboxParsed["description"] as string | undefined) ?? null,
+      project_hint: null,
+      assignee_hint: null,
+      due_date_hint: null,
+      priority,
+      labels: [],
+    };
+
+    const { task, taskKey } = await createTask(parsed, project, ctx, parseInt(inbox.messageId), priority, inbox.id);
+    const taskUrl = `${APP_URL}/app/${ctx.workspaceSlug}/projects/${project.id}/tasks/${task.id}`;
+
+    await sendTelegramMessage(
+      chatId,
+      `✅ *${parsed.title}*\n${PRIORITY_EMOJI[priority] ?? "⚪"} ${priority} · 📁 ${project.name}`,
+      { inline_keyboard: [[{ text: `📋 Ver ${taskKey}`, url: taskUrl }]] },
+    );
+    return;
+  }
+
+  // ── Confirm text task: ct_<messageId> ──
+  if (data.startsWith("ct_")) {
+    const messageId = parseInt(data.slice(3));
+    const inbox = await db.query.telegramInbox.findFirst({
+      where: and(
+        eq(telegramInbox.userId, ctx.profile.id),
+        eq(telegramInbox.messageId, messageId.toString()),
+        eq(telegramInbox.status, "pending"),
+      ),
+    });
+
+    if (!inbox || !inbox.rawText) {
+      await sendTelegramMessage(chatId, "❌ No encontré el mensaje original.");
+      return;
+    }
 
     const parsed: ParsedTask = {
       intent: "create_task",
       confidence: 1,
-      title: transcript,
+      title: inbox.rawText,
       description: null,
       project_hint: null,
       assignee_hint: null,
@@ -683,20 +783,31 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
       labels: [],
     };
 
-    const result = await createTaskFromParsed(parsed, ctx, messageId);
-    if (!result) {
-      await sendTelegramMessage(chatId, "❌ No hay proyectos activos en tu workspace.");
-      return;
-    }
+    await resolveAndCreate(chatId, parsed, ctx, messageId, "medium");
+    await db.update(telegramInbox).set({ status: "converted" }).where(eq(telegramInbox.id, inbox.id));
+    return;
+  }
 
-    const { task, project, taskKey, priority } = result;
-    const taskUrl = `${APP_URL}/app/${ctx.workspaceSlug}/projects/${project.id}/tasks/${task.id}`;
+  // ── Confirm voice task: cv_<messageId>_<encodedTitle> ──
+  if (data.startsWith("cv_")) {
+    const rest = data.slice(3);
+    const underscoreIdx = rest.indexOf("_");
+    const messageId = parseInt(rest.slice(0, underscoreIdx));
+    const title = decodeURIComponent(rest.slice(underscoreIdx + 1));
 
-    await sendTelegramMessage(
-      chatId,
-      `✅ *${transcript}*\n${PRIORITY_EMOJI[priority]} ${priority} · 📁 ${project.name}`,
-      { inline_keyboard: [[{ text: `📋 Ver ${taskKey}`, url: taskUrl }]] },
-    );
+    const parsed: ParsedTask = {
+      intent: "create_task",
+      confidence: 1,
+      title,
+      description: null,
+      project_hint: null,
+      assignee_hint: null,
+      due_date_hint: null,
+      priority: "medium",
+      labels: [],
+    };
+
+    await resolveAndCreate(chatId, parsed, ctx, messageId, "medium");
   }
 }
 
