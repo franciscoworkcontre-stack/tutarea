@@ -1,0 +1,53 @@
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { db } from "@/db";
+import { mindmaps, projects, workspaceMembers } from "@/db/schema";
+import { eq, and } from "drizzle-orm";
+import MindmapList from "@/components/mindmaps/mindmap-list";
+
+type Props = {
+  params: Promise<{ workspace: string; project: string }>;
+};
+
+export default async function MindmapsPage({ params }: Props) {
+  const { workspace: workspaceSlug, project: projectId } = await params;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) redirect("/login");
+
+  const project = await db.query.projects.findFirst({
+    where: eq(projects.id, projectId),
+  });
+
+  if (!project) redirect(`/app/${workspaceSlug}/projects`);
+
+  const member = await db.query.workspaceMembers.findFirst({
+    where: and(
+      eq(workspaceMembers.workspaceId, project.workspaceId),
+      eq(workspaceMembers.userId, user.id)
+    ),
+  });
+
+  if (!member) redirect(`/app/${workspaceSlug}`);
+
+  const projectMindmaps = await db.query.mindmaps.findMany({
+    where: eq(mindmaps.projectId, projectId),
+    orderBy: [mindmaps.updatedAt],
+  });
+
+  const canCreate = member.role === "owner" || member.role === "admin" || member.role === "member";
+
+  return (
+    <div className="flex flex-col flex-1 overflow-hidden">
+      <div className="flex-1 overflow-y-auto p-6">
+        <MindmapList
+          projectId={projectId}
+          workspaceSlug={workspaceSlug}
+          initialMindmaps={projectMindmaps}
+          canCreate={canCreate}
+        />
+      </div>
+    </div>
+  );
+}

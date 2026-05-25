@@ -514,3 +514,112 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
     relationName: "subtasks",
   }),
 }));
+
+// === MINDMAPS ===
+export const mindmapStatusEnum = pgEnum("mindmap_status", ["draft", "active", "archived"]);
+
+export const mindmaps = pgTable("mindmaps", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  status: mindmapStatusEnum("status").notNull().default("draft"),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const mindmapNodes = pgTable("mindmap_nodes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  mindmapId: uuid("mindmap_id").notNull().references(() => mindmaps.id, { onDelete: "cascade" }),
+  parentNodeId: uuid("parent_node_id"),
+  label: text("label").notNull(),
+  content: text("content"),
+  color: text("color").notNull().default("#94a3b8"),
+  positionX: integer("position_x").notNull().default(0),
+  positionY: integer("position_y").notNull().default(0),
+  nodeOrder: integer("node_order").notNull().default(0),
+  linkedTaskId: uuid("linked_task_id").references(() => tasks.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const mindmapsRelations = relations(mindmaps, ({ one, many }) => ({
+  project: one(projects, { fields: [mindmaps.projectId], references: [projects.id] }),
+  workspace: one(workspaces, { fields: [mindmaps.workspaceId], references: [workspaces.id] }),
+  nodes: many(mindmapNodes),
+}));
+
+export const mindmapNodesRelations = relations(mindmapNodes, ({ one, many }) => ({
+  mindmap: one(mindmaps, { fields: [mindmapNodes.mindmapId], references: [mindmaps.id] }),
+  children: many(mindmapNodes, { relationName: "parent_children" }),
+  parent: one(mindmapNodes, { fields: [mindmapNodes.parentNodeId], references: [mindmapNodes.id], relationName: "parent_children" }),
+  linkedTask: one(tasks, { fields: [mindmapNodes.linkedTaskId], references: [tasks.id] }),
+}));
+
+// === MEETINGS ===
+export const meetingStatusEnum = pgEnum("meeting_status", ["draft", "scheduled", "in_progress", "completed", "cancelled"]);
+export const attendeeRoleEnum = pgEnum("attendee_role", ["facilitator", "scribe", "decision_maker", "contributor", "optional"]);
+export const attendeeRsvpEnum = pgEnum("attendee_rsvp", ["pending", "accepted", "declined", "tentative"]);
+export const agendaItemTypeEnum = pgEnum("agenda_item_type", ["discussion", "decision", "update", "brainstorm", "qa"]);
+
+export const meetings = pgTable("meetings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  workspaceId: uuid("workspace_id").notNull().references(() => workspaces.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  objective: text("objective"),
+  status: meetingStatusEnum("status").notNull().default("draft"),
+  scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+  durationMin: integer("duration_min").notNull().default(60),
+  timezone: text("timezone").notNull().default("America/Santiago"),
+  location: text("location"),
+  meetingUrl: text("meeting_url"),
+  briefingMd: text("briefing_md"),
+  recapMd: text("recap_md"),
+  ownerId: uuid("owner_id").notNull(),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const meetingAttendees = pgTable("meeting_attendees", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  meetingId: uuid("meeting_id").notNull().references(() => meetings.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull(),
+  role: attendeeRoleEnum("role").notNull().default("contributor"),
+  rsvp: attendeeRsvpEnum("rsvp").notNull().default("pending"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const meetingAgendaItems = pgTable("meeting_agenda_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  meetingId: uuid("meeting_id").notNull().references(() => meetings.id, { onDelete: "cascade" }),
+  parentItemId: uuid("parent_item_id"),  // max 1 nivel de profundidad
+  title: text("title").notNull(),
+  ownerId: uuid("owner_id"),
+  durationMin: integer("duration_min"),
+  itemType: agendaItemTypeEnum("item_type").notNull().default("discussion"),
+  notesMd: text("notes_md"),
+  orderIdx: integer("order_idx").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const meetingsRelations = relations(meetings, ({ one, many }) => ({
+  project: one(projects, { fields: [meetings.projectId], references: [projects.id] }),
+  workspace: one(workspaces, { fields: [meetings.workspaceId], references: [workspaces.id] }),
+  attendees: many(meetingAttendees),
+  agendaItems: many(meetingAgendaItems),
+}));
+
+export const meetingAttendeesRelations = relations(meetingAttendees, ({ one }) => ({
+  meeting: one(meetings, { fields: [meetingAttendees.meetingId], references: [meetings.id] }),
+}));
+
+export const meetingAgendaItemsRelations = relations(meetingAgendaItems, ({ one, many }) => ({
+  meeting: one(meetings, { fields: [meetingAgendaItems.meetingId], references: [meetings.id] }),
+  children: many(meetingAgendaItems, { relationName: "agenda_parent_children" }),
+  parent: one(meetingAgendaItems, { fields: [meetingAgendaItems.parentItemId], references: [meetingAgendaItems.id], relationName: "agenda_parent_children" }),
+}));

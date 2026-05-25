@@ -3,7 +3,7 @@
 import { useState, Fragment } from "react";
 import { useNow } from "@/lib/hooks";
 import Link from "next/link";
-import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, Check } from "lucide-react";
+import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, Check, Brain, CalendarCheck } from "lucide-react";
 import { cn, formatRelativeDate, getInitials } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
 import type { tasks, taskStatuses, projects, profiles } from "@/db/schema";
@@ -141,7 +141,9 @@ export default function ListView({
             { href: "board", icon: LayoutGrid, label: "Kanban" },
             { href: "list", icon: null, label: "Lista" },
             { href: "gantt", icon: GanttChart, label: "Gantt" },
-          ].map(({ href, label }) => (
+            { href: "mindmaps", icon: Brain, label: "Mindmaps" },
+            { href: "meetings", icon: CalendarCheck, label: "Reuniones" },
+          ].map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={`/app/${workspaceSlug}/projects/${project.id}/${href}`}
@@ -152,9 +154,11 @@ export default function ListView({
                   : "text-text-muted hover:text-text hover:bg-surface-2"
               )}
             >
-              {href === "board" && <LayoutGrid className="w-3.5 h-3.5" />}
-              {href === "list" && <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" strokeLinecap="round" strokeLinejoin="round" /></svg>}
-              {href === "gantt" && <GanttChart className="w-3.5 h-3.5" />}
+              {href === "list" ? (
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              ) : Icon ? (
+                <Icon className="w-3.5 h-3.5" />
+              ) : null}
               {label}
             </Link>
           ))}
