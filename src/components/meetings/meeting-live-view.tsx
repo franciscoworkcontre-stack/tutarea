@@ -151,8 +151,8 @@ export default function MeetingLiveView({ meeting, currentUserId, onExit }: Prop
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Error guardando nota");
-      const body = (await res.json()) as { note: MeetingNote };
-      setRecentNotes((prev) => [body.note, ...prev].slice(0, 5));
+      const resData = (await res.json()) as { note: MeetingNote };
+      setRecentNotes((prev) => [resData.note, ...prev].slice(0, 5));
       setCapture({ active: false, noteType: "note", text: "", assignee: "", dueDate: "" });
       toast.success(`${NOTE_TYPE_CONFIG[capture.noteType].label} guardada`);
     } catch {
