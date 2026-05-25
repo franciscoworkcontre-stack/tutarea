@@ -178,7 +178,7 @@ export default function AgendaEditor({ meetingId, initialItems, members, readOnl
               exit={{ opacity: 0, height: 0 }}
               transition={spring}
               className={cn(
-                "group flex items-center gap-2 px-3 py-2.5 rounded-lg border border-transparent hover:border-border hover:bg-surface/50 transition-all",
+                "group flex flex-wrap items-center gap-2 px-3 py-2.5 rounded-lg border border-transparent hover:border-border hover:bg-surface/50 transition-all",
                 saving === item.id && "opacity-60"
               )}
             >
@@ -188,7 +188,7 @@ export default function AgendaEditor({ meetingId, initialItems, members, readOnl
                 disabled={readOnly}
                 value={item.itemType}
                 onChange={(e) => updateItemRemote(item.id, { itemType: e.target.value as ItemType })}
-                className="bg-transparent outline-none text-xs border-none cursor-pointer"
+                className="bg-transparent outline-none text-xs border-none cursor-pointer flex-shrink-0"
                 title="Tipo de item"
               >
                 {Object.entries(TYPE_CONFIG).map(([k, v]) => (
@@ -198,7 +198,7 @@ export default function AgendaEditor({ meetingId, initialItems, members, readOnl
 
               <Icon className={cn("w-3.5 h-3.5 flex-shrink-0", typeConf.className)} />
 
-              <span className="flex-1 min-w-0 text-sm">
+              <span className="flex-1 min-w-[120px] text-sm">
                 <InlineEdit
                   value={item.title}
                   onSave={(v) => updateItemRemote(item.id, { title: v })}
@@ -230,7 +230,7 @@ export default function AgendaEditor({ meetingId, initialItems, members, readOnl
                 <select
                   value={item.ownerId ?? ""}
                   onChange={(e) => updateItemRemote(item.id, { ownerId: e.target.value || null })}
-                  className="text-xs bg-surface border border-border rounded px-1.5 py-0.5 outline-none focus:border-accent max-w-[100px] truncate"
+                  className="text-xs bg-surface border border-border rounded px-1.5 py-0.5 outline-none focus:border-accent max-w-[100px] truncate flex-shrink-0"
                   title="Responsable"
                 >
                   <option value="">—</option>
@@ -243,7 +243,7 @@ export default function AgendaEditor({ meetingId, initialItems, members, readOnl
               )}
 
               {owner && readOnly && (
-                <span className="text-xs text-text-subtle max-w-[80px] truncate">
+                <span className="text-xs text-text-subtle max-w-[80px] truncate flex-shrink-0">
                   {owner.profile?.fullName?.split(" ")[0] ?? "—"}
                 </span>
               )}
@@ -251,7 +251,7 @@ export default function AgendaEditor({ meetingId, initialItems, members, readOnl
               {!readOnly && (
                 <button
                   onClick={() => handleDelete(item.id)}
-                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-500/10 text-text-subtle hover:text-red-400"
+                  className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-500/10 text-text-subtle hover:text-red-400 flex-shrink-0"
                   title="Eliminar item"
                 >
                   <Trash2 className="w-3.5 h-3.5" />

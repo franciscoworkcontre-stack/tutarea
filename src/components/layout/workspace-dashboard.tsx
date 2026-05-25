@@ -54,7 +54,7 @@ export default function WorkspaceDashboard({ workspace, profile }: Props) {
   ];
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-10">
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -67,7 +67,7 @@ export default function WorkspaceDashboard({ workspace, profile }: Props) {
           Workspace: <strong className="text-text">{workspace.name}</strong>
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-12">
           {items.map((item, i) => (
             <motion.div
               key={item.label}

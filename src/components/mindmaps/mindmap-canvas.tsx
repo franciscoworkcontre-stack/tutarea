@@ -441,47 +441,47 @@ export default function MindmapCanvas({ mindmapId, initialNodes, readOnly = fals
 
   return (
     <div className="relative w-full h-full flex flex-col bg-surface overflow-hidden rounded-xl border border-border">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-background flex-shrink-0 z-10">
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border bg-background flex-shrink-0 z-10 flex-wrap">
         <button
           onClick={() => setTransform((t) => ({ ...t, scale: Math.min(2, t.scale * 1.2) }))}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
           title="Zoom in"
         >
           <ZoomIn className="w-4 h-4" />
         </button>
         <button
           onClick={() => setTransform((t) => ({ ...t, scale: Math.max(0.5, t.scale * 0.8) }))}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
           title="Zoom out"
         >
           <ZoomOut className="w-4 h-4" />
         </button>
         <button
           onClick={handleFitToScreen}
-          className="w-7 h-7 flex items-center justify-center rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-2 text-text-muted hover:text-text transition-colors"
           title="Ajustar pantalla"
         >
           <Maximize2 className="w-4 h-4" />
         </button>
-        <div className="w-px h-4 bg-border mx-1" />
+        <div className="w-px h-4 bg-border mx-0.5" />
         {!readOnly && selectedId && (
           <button
             onClick={() => handleAddChild(selectedId)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors min-h-[2rem]"
             title="Agregar nodo hijo"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Add child</span>
+            <span className="hidden sm:inline">Add child</span>
           </button>
         )}
         {!readOnly && selectedId && (
           <button
             onClick={() => handleDeleteNode(selectedId)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-danger hover:bg-danger/10 transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium text-danger hover:bg-danger/10 transition-colors min-h-[2rem]"
             title="Eliminar nodo"
           >
             <Minus className="w-3.5 h-3.5" />
-            <span>Eliminar</span>
+            <span className="hidden sm:inline">Eliminar</span>
           </button>
         )}
         <div className="ml-auto text-xs text-text-muted">
@@ -492,9 +492,10 @@ export default function MindmapCanvas({ mindmapId, initialNodes, readOnly = fals
       <div
         ref={containerRef}
         className={cn(
-          "flex-1 relative overflow-hidden",
+          "flex-1 relative overflow-hidden touch-none",
           panRef.current ? "cursor-grabbing" : "cursor-grab"
         )}
+        style={{ touchAction: "none" }}
         onMouseDown={handleCanvasMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

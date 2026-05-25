@@ -76,10 +76,10 @@ export default function MembersAdmin({
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
       {/* Header */}
       <motion.div
-        className="flex items-center justify-between mb-8"
+        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8"
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
@@ -92,7 +92,7 @@ export default function MembersAdmin({
         </div>
         <motion.button
           onClick={() => setInviteOpen(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-accent text-accent-fg rounded-xl font-medium text-sm hover:bg-accent/90 transition-colors"
+          className="flex items-center gap-2 px-4 py-2.5 bg-accent text-accent-fg rounded-xl font-medium text-sm hover:bg-accent/90 transition-colors min-h-[44px] self-start sm:self-auto"
           whileTap={{ scale: 0.97 }}
         >
           <UserPlus className="w-4 h-4" />
@@ -125,18 +125,18 @@ export default function MembersAdmin({
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
       >
-        <div className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center px-4 py-3 bg-surface border-b border-border text-xs font-medium text-text-muted uppercase tracking-wider gap-4">
+        <div className="grid grid-cols-[auto_1fr_auto_auto] sm:grid-cols-[auto_1fr_auto_auto_auto] items-center px-4 py-3 bg-surface border-b border-border text-xs font-medium text-text-muted uppercase tracking-wider gap-4">
           <div />
           <div>Miembro</div>
           <div>Rol</div>
-          <div>Unido</div>
+          <div className="hidden sm:block">Unido</div>
           <div />
         </div>
 
         {filtered.map((member, i) => (
           <motion.div
             key={member.id}
-            className="grid grid-cols-[auto_1fr_auto_auto_auto] items-center px-4 py-3.5 border-b border-border last:border-0 hover:bg-surface/50 transition-colors gap-4"
+            className="grid grid-cols-[auto_1fr_auto_auto] sm:grid-cols-[auto_1fr_auto_auto_auto] items-center px-4 py-3.5 border-b border-border last:border-0 hover:bg-surface/50 transition-colors gap-4 min-h-[44px]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: i * 0.04, duration: 0.2 }}
@@ -174,7 +174,7 @@ export default function MembersAdmin({
                 </select>
               )}
             </div>
-            <div className="text-xs text-text-subtle">
+            <div className="hidden sm:block text-xs text-text-subtle">
               {formatDate(member.joinedAt)}
             </div>
             <div>
@@ -210,25 +210,25 @@ export default function MembersAdmin({
             {pendingInvitations.map((inv) => (
               <div
                 key={inv.id}
-                className="flex items-center gap-4 px-4 py-3.5 border-b border-border last:border-0"
+                className="flex flex-wrap items-center gap-3 px-4 py-3.5 border-b border-border last:border-0 min-h-[44px]"
               >
-                <div className="w-8 h-8 rounded-full bg-surface-2 border border-border flex items-center justify-center">
+                <div className="w-8 h-8 rounded-full bg-surface-2 border border-border flex items-center justify-center flex-shrink-0">
                   <Mail className="w-4 h-4 text-text-subtle" />
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{inv.email}</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{inv.email}</p>
                   <p className="text-xs text-text-subtle">
                     Expira {formatDate(inv.expiresAt)}
                   </p>
                 </div>
-                <span className="text-xs px-2 py-1 rounded-full bg-surface-2 border border-border text-text-muted capitalize">
+                <span className="text-xs px-2 py-1 rounded-full bg-surface-2 border border-border text-text-muted capitalize flex-shrink-0">
                   {ROLE_LABELS[inv.role] ?? inv.role}
                 </span>
-                <div className="flex gap-2">
-                  <button className="text-xs text-text-muted hover:text-text transition-colors">
+                <div className="flex gap-2 flex-shrink-0">
+                  <button className="text-xs text-text-muted hover:text-text transition-colors min-h-[44px] px-1">
                     Reenviar
                   </button>
-                  <button className="text-xs text-danger hover:text-danger/80 transition-colors">
+                  <button className="text-xs text-danger hover:text-danger/80 transition-colors min-h-[44px] px-1">
                     Revocar
                   </button>
                 </div>

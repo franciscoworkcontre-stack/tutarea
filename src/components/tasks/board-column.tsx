@@ -65,10 +65,10 @@ export default function BoardColumn({
     <div
       ref={setNodeRef}
       className={cn(
-        "flex flex-col w-72 rounded-xl border transition-colors",
+        "flex flex-col w-[85vw] sm:w-72 flex-shrink-0 rounded-xl border transition-colors",
         isOver ? "border-accent/40 bg-accent/5" : "border-border bg-surface"
       )}
-      style={{ height: "calc(100vh - 160px)" }}
+      style={{ height: "calc(100dvh - 160px)" }}
     >
       {/* Column header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border flex-shrink-0">

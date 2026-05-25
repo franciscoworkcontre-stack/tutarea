@@ -9,7 +9,7 @@ type Props = {
 
 export default function InboxView({ workspaceSlug: _ }: Props) {
   return (
-    <div className="max-w-3xl mx-auto px-6 py-8">
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-8">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}

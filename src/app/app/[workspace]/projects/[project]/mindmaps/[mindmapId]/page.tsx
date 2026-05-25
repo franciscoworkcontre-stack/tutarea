@@ -56,32 +56,32 @@ export default async function MindmapEditorPage({ params }: Props) {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      <div className="flex items-center gap-3 px-4 h-12 border-b border-border bg-surface flex-shrink-0">
+      <div className="flex items-center gap-2 px-4 h-12 border-b border-border bg-surface flex-shrink-0 min-w-0">
         <Link
           href={`/app/${workspaceSlug}/projects/${projectId}/mindmaps`}
-          className="flex items-center gap-1.5 text-sm text-text-muted hover:text-text transition-colors"
+          className="flex items-center gap-1.5 text-sm text-text-muted hover:text-text transition-colors flex-shrink-0"
         >
           <ChevronLeft className="w-4 h-4" />
-          <span>Volver</span>
+          <span className="hidden sm:inline">Volver</span>
         </Link>
-        <div className="w-px h-4 bg-border" />
-        <nav className="flex items-center gap-1.5 text-sm text-text-muted">
-          <span>Proyectos</span>
-          <span>/</span>
-          <span className="text-text">{project.name}</span>
-          <span>/</span>
+        <div className="w-px h-4 bg-border flex-shrink-0" />
+        <nav className="flex items-center gap-1 sm:gap-1.5 text-sm text-text-muted min-w-0 overflow-hidden">
+          <span className="hidden sm:inline flex-shrink-0">Proyectos</span>
+          <span className="hidden sm:inline flex-shrink-0">/</span>
+          <span className="hidden sm:inline text-text truncate max-w-[8rem]">{project.name}</span>
+          <span className="hidden sm:inline flex-shrink-0">/</span>
           <Link
             href={`/app/${workspaceSlug}/projects/${projectId}/mindmaps`}
-            className="hover:text-text transition-colors"
+            className="hover:text-text transition-colors flex-shrink-0"
           >
-            Mindmaps
+            <span className="hidden sm:inline">Mindmaps</span>
           </Link>
-          <span>/</span>
-          <span className="text-text font-medium">{mindmap.title}</span>
+          <span className="hidden sm:inline flex-shrink-0">/</span>
+          <span className="text-text font-medium truncate min-w-0">{mindmap.title}</span>
         </nav>
       </div>
 
-      <div className="flex-1 overflow-hidden p-4">
+      <div className="flex-1 overflow-hidden p-2 sm:p-4">
         <MindmapCanvas
           mindmapId={mindmapId}
           initialNodes={initialNodes}

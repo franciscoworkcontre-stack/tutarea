@@ -246,18 +246,18 @@ export default function BoardView({
               )}
             >
               <Icon className="w-3.5 h-3.5" />
-              {label}
+              <span className="hidden sm:inline">{label}</span>
             </Link>
           ))}
         </div>
       </div>
 
       {/* Board */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden" style={{ WebkitOverflowScrolling: "touch" }}>
         {!mounted ? (
           <div className="flex gap-4 p-6 h-full min-w-max">
             {statuses.map((status) => (
-              <div key={status.id} className="w-72 flex-shrink-0 rounded-xl border border-border bg-surface/50 h-32 animate-pulse" />
+              <div key={status.id} className="w-[85vw] sm:w-72 flex-shrink-0 rounded-xl border border-border bg-surface/50 h-32 animate-pulse" />
             ))}
           </div>
         ) : <DndContext

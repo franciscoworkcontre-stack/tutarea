@@ -71,19 +71,25 @@ export default function MindmapSidebar({ node, onUpdate, onClose }: Props) {
       {node && (
         <motion.div
           key={node.id}
-          initial={{ opacity: 0, x: 24 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: 24 }}
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 24 }}
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
-          className="w-64 flex-shrink-0 border-l border-border bg-background flex flex-col h-full"
+          className={cn(
+            "fixed bottom-0 left-0 right-0 z-50 max-h-[60vh] flex flex-col",
+            "border-t border-border bg-background rounded-t-xl shadow-lg",
+            "md:static md:bottom-auto md:left-auto md:right-auto md:z-auto",
+            "md:max-h-full md:w-64 md:flex-shrink-0 md:border-l md:border-t-0",
+            "md:border-border md:rounded-none md:shadow-none md:h-full"
+          )}
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
             <span className="text-sm font-medium">Propiedades del nodo</span>
             <button
               onClick={onClose}
-              className="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
+              className="w-8 h-8 flex items-center justify-center rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-4 h-4" />
             </button>
           </div>
 

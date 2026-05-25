@@ -157,7 +157,7 @@ export default function ListView({
               ) : Icon ? (
                 <Icon className="w-3.5 h-3.5" />
               ) : null}
-              {label}
+              <span className="hidden sm:inline">{label}</span>
             </Link>
           ))}
         </div>
@@ -170,11 +170,11 @@ export default function ListView({
             <tr className="border-b border-border bg-surface/50 sticky top-0 z-10">
               <th className="px-4 py-2.5 w-10"></th>
               <th className="text-left px-2 py-2.5 text-xs font-medium text-text-subtle w-8"></th>
-              <th className="text-left px-2 py-2.5 text-xs font-medium text-text-subtle w-24">Clave</th>
+              <th className="hidden sm:table-cell text-left px-2 py-2.5 text-xs font-medium text-text-subtle w-24">Clave</th>
               <th className="text-left px-2 py-2.5 text-xs font-medium text-text-subtle">Título</th>
-              <th className="text-left px-4 py-2.5 text-xs font-medium text-text-subtle w-36">Estado</th>
-              <th className="text-left px-4 py-2.5 text-xs font-medium text-text-subtle w-36">Asignado</th>
-              <th className="text-left px-4 py-2.5 text-xs font-medium text-text-subtle w-32">Vence</th>
+              <th className="hidden md:table-cell text-left px-4 py-2.5 text-xs font-medium text-text-subtle w-36">Estado</th>
+              <th className="hidden sm:table-cell text-left px-4 py-2.5 text-xs font-medium text-text-subtle w-36">Asignado</th>
+              <th className="hidden md:table-cell text-left px-4 py-2.5 text-xs font-medium text-text-subtle w-32">Vence</th>
             </tr>
           </thead>
           <tbody>
@@ -224,24 +224,37 @@ export default function ListView({
                       <td className="px-2 py-2.5">
                         <PriorityIcon priority={task.priority} />
                       </td>
-                      <td className="px-2 py-2.5">
+                      <td className="hidden sm:table-cell px-2 py-2.5">
                         <span className="text-xs font-mono text-text-subtle">{task.key}</span>
                       </td>
                       <td className="px-2 py-2.5">
-                        <Link
-                          href={`/app/${workspaceSlug}/projects/${project.id}/tasks/${task.id}`}
-                          className={cn("hover:text-accent transition-colors line-clamp-1", isDone && "line-through text-text-muted")}
-                        >
-                          {task.title}
-                        </Link>
+                        <div className="flex flex-col gap-1">
+                          <Link
+                            href={`/app/${workspaceSlug}/projects/${project.id}/tasks/${task.id}`}
+                            className={cn("hover:text-accent transition-colors line-clamp-1", isDone && "line-through text-text-muted")}
+                          >
+                            {task.title}
+                          </Link>
+                          <div className="flex items-center gap-2 sm:hidden">
+                            <div className="flex items-center gap-1">
+                              <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />
+                              <span className="text-xs text-text-muted">{status.name}</span>
+                            </div>
+                            {assignee && (
+                              <div className="w-4 h-4 rounded-full bg-accent/20 flex items-center justify-center text-[9px] font-medium text-accent">
+                                {getInitials(assignee.profile?.fullName ?? "?")}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="hidden md:table-cell px-4 py-2.5">
                         <div className="flex items-center gap-1.5">
                           <div className="w-2 h-2 rounded-full" style={{ backgroundColor: status.color }} />
                           <span className="text-xs text-text-muted">{status.name}</span>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="hidden sm:table-cell px-4 py-2.5">
                         {assignee ? (
                           <div className="flex items-center gap-1.5">
                             <div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center text-[10px] font-medium text-accent">
@@ -255,7 +268,7 @@ export default function ListView({
                           <span className="text-xs text-text-subtle">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="hidden md:table-cell px-4 py-2.5">
                         {task.dueDate ? (
                           <div className={cn("flex items-center gap-1 text-xs", isOverdue ? "text-danger" : "text-text-muted")}>
                             <Calendar className="w-3 h-3" />
@@ -273,7 +286,7 @@ export default function ListView({
                 <tr key={`add-${status.id}`} className="border-b border-border/20">
                   {adding === status.id ? (
                     <td colSpan={7} className="px-4 py-2">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <input
                           autoFocus
                           value={newTitle}
@@ -283,7 +296,7 @@ export default function ListView({
                             if (e.key === "Escape") { setNewTitle(""); setAdding(null); }
                           }}
                           placeholder="Título de la tarea..."
-                          className="flex-1 text-sm bg-transparent outline-none border-b border-accent/40 pb-0.5 placeholder:text-text-subtle"
+                          className="flex-1 min-w-0 text-sm bg-transparent outline-none border-b border-accent/40 pb-0.5 placeholder:text-text-subtle"
                         />
                         {members.length > 0 && (
                           <AssigneePicker members={members} value={newAssigneeId} onChange={setNewAssigneeId} size="sm" />

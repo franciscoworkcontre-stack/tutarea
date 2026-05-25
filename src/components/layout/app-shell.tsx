@@ -30,6 +30,7 @@ export default function AppShell({
   userId,
 }: Props) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const pathname = usePathname();
@@ -64,7 +65,7 @@ export default function AppShell({
   }, []);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background">
+    <div className="flex h-[100dvh] overflow-hidden bg-background">
       <Sidebar
         workspace={workspace}
         role={role}
@@ -72,6 +73,8 @@ export default function AppShell({
         collapsed={sidebarCollapsed}
         onCollapse={setSidebarCollapsed}
         currentPath={pathname}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
       />
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -79,6 +82,7 @@ export default function AppShell({
           workspace={workspace}
           onCommandOpen={() => setCommandOpen(true)}
           userId={userId}
+          onMobileMenuOpen={() => setMobileMenuOpen(true)}
         />
 
         <main className="flex-1 overflow-auto">

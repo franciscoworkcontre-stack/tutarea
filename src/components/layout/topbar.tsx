@@ -5,7 +5,7 @@ import { useTheme } from "next-themes";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, Bell, Sun, Moon, Monitor, LogOut, User } from "lucide-react";
+import { Search, Bell, Sun, Moon, Monitor, LogOut, User, Menu } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { spring } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
@@ -17,9 +17,10 @@ type Props = {
   workspace: Workspace;
   onCommandOpen: () => void;
   userId: string;
+  onMobileMenuOpen?: () => void;
 };
 
-export default function Topbar({ workspace, onCommandOpen, userId }: Props) {
+export default function Topbar({ workspace, onCommandOpen, userId, onMobileMenuOpen }: Props) {
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -44,7 +45,13 @@ export default function Topbar({ workspace, onCommandOpen, userId }: Props) {
 
   return (
     <header className="h-12 border-b border-border flex items-center px-4 gap-3 bg-background flex-shrink-0 relative z-10">
-      {/* Breadcrumbs */}
+      <button
+        onClick={onMobileMenuOpen}
+        className="md:hidden w-8 h-8 rounded-lg text-text-muted hover:text-text hover:bg-surface transition-colors flex items-center justify-center flex-shrink-0"
+        aria-label="Abrir menú"
+      >
+        <Menu className="w-4 h-4" />
+      </button>
       <nav className="flex items-center gap-1 flex-1 min-w-0">
         <Link
           href={`/app/${workspace.slug}`}
@@ -70,7 +77,7 @@ export default function Topbar({ workspace, onCommandOpen, userId }: Props) {
           whileTap={{ scale: 0.97 }}
         >
           <Search className="w-3.5 h-3.5" />
-          <span>Buscar</span>
+          <span className="hidden md:inline">Buscar</span>
           <kbd className="hidden sm:flex items-center gap-0.5 text-xs font-mono text-text-subtle">
             <span>⌘</span>K
           </kbd>

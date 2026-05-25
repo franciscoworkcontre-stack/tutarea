@@ -139,8 +139,8 @@ export default function MeetingDetail({ meeting: initial, members, currentUserId
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 flex flex-col overflow-hidden border-r border-border">
+      <div className="flex flex-col md:flex-row flex-1 overflow-auto md:overflow-hidden">
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden border-b md:border-b-0 md:border-r border-border">
           <div className="p-6 border-b border-border flex flex-col gap-3">
             <input
               value={meeting.title}
@@ -156,7 +156,7 @@ export default function MeetingDetail({ meeting: initial, members, currentUserId
             />
           </div>
 
-          <div className="flex items-center gap-1 px-6 pt-4 border-b border-border">
+          <div className="flex items-center gap-1 px-6 pt-4 border-b border-border overflow-x-auto">
             {(["agenda", "briefing", "recap"] as Tab[]).map((t) => (
               <button
                 key={t}
@@ -246,7 +246,7 @@ export default function MeetingDetail({ meeting: initial, members, currentUserId
           </div>
         </div>
 
-        <div className="w-72 flex-shrink-0 overflow-y-auto flex flex-col">
+        <div className="w-full md:w-72 md:flex-shrink-0 overflow-y-auto flex flex-col border-t md:border-t-0 md:border-l border-border">
           <div className="p-4 border-b border-border flex flex-col gap-4">
             <div className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-text-muted">Estado</span>
