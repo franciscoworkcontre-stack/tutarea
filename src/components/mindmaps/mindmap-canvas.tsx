@@ -207,7 +207,7 @@ function MindmapCanvasInner({
   const undo = useMindmapStore((s) => s.undo);
   const redo = useMindmapStore((s) => s.redo);
 
-  const { fitView, getViewport, screenToFlowPosition } = useReactFlow();
+  const { fitView, getViewport } = useReactFlow();
 
   const flowRef = useRef<HTMLDivElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -386,12 +386,15 @@ function MindmapCanvasInner({
           y: parentNode.position.y + siblings.length * 60,
         };
       } else {
-        // Place at center of current viewport so it's always visible
+        // Place at center of the current viewport in flow coordinates
         const vp = getViewport();
         const containerEl = flowRef.current;
         const w = containerEl?.offsetWidth ?? 800;
         const h = containerEl?.offsetHeight ?? 600;
-        position = screenToFlowPosition({ x: w / 2, y: h / 2 });
+        position = {
+          x: (w / 2 - vp.x) / vp.zoom,
+          y: (h / 2 - vp.y) / vp.zoom,
+        };
       }
 
       const newNode: Node<MindmapNodeData> = {
@@ -403,13 +406,15 @@ function MindmapCanvasInner({
           parentNodeId: resolvedParentId,
           nodeType: resolvedParentId ? 'leaf' : 'root',
           color: parentNode?.data.color ?? '#94a3b8',
-          isEditing: true,
+          isEditing: false,
         },
       };
 
       useMindmapStore.getState().pushHistory();
       addNode(newNode);
       setSelectedNodeIds([tempId]);
+      // Scroll to show the new node immediately (don't wait for API)
+      setTimeout(() => fitView({ nodes: [{ id: tempId }], duration: 300, padding: 0.5, maxZoom: 1.5 }), 50);
 
       if (resolvedParentId) {
         const newEdge: Edge = {
@@ -453,7 +458,7 @@ function MindmapCanvasInner({
           }))
         );
         setSelectedNodeIds([created.id]);
-        setTimeout(() => fitView({ nodes: [{ id: created.id }], duration: 300, padding: 0.5, maxZoom: 1.5 }), 50);
+        setTimeout(() => fitView({ duration: 300, padding: 0.2, maxZoom: 1.5 }), 50);
       } catch {
         toast.error('No se pudo crear el nodo');
         const afterNodes = useMindmapStore.getState().nodes;
@@ -462,7 +467,7 @@ function MindmapCanvasInner({
         setEdges(afterEdges.filter((e) => !e.id.includes(tempId)));
       }
     },
-    [mindmapId, addNode, setNodes, setEdges, setSelectedNodeIds, fitView, getViewport, screenToFlowPosition]
+    [mindmapId, addNode, setNodes, setEdges, setSelectedNodeIds, fitView, getViewport]
   );
 
   const handleDeleteNode = useCallback(
