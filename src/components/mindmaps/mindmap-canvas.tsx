@@ -880,6 +880,7 @@ function MindmapCanvasInner({
         selectedNodeId={selectedNodeId}
         onAiAction={handleAiAction}
         onExport={handleExport}
+        onAddNode={(parentId) => handleAddNode(parentId)}
       />
 
       <div ref={flowRef} className={cn('flex-1 relative', themeClass)}>

@@ -6,7 +6,7 @@ import {
   Share2, GitBranch, GitCommit,
   ZoomIn, ZoomOut, Maximize2,
   Wand2, Download, ChevronDown,
-  Check, Loader2, Sparkles, FileText,
+  Check, Loader2, Sparkles, FileText, Plus,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMindmapStore } from '@/lib/mindmaps/mindmap-store';
@@ -21,6 +21,7 @@ type Props = {
   selectedNodeId: string | null;
   onAiAction: (action: 'expand' | 'summarize' | 'brainstorm' | 'convert-to-plan') => void;
   onExport: (format: 'png' | 'svg' | 'markdown' | 'opml') => void;
+  onAddNode: (parentId: string | null) => void;
 };
 
 const THEMES = [
@@ -37,6 +38,7 @@ export default function MindmapToolbar({
   selectedNodeId,
   onAiAction,
   onExport,
+  onAddNode,
 }: Props) {
   const { fitView, zoomIn, zoomOut } = useReactFlow();
   const { nodes, edges, layoutMode, theme, setLayoutMode, setTheme, setNodes, setEdges } =
@@ -157,6 +159,18 @@ export default function MindmapToolbar({
         >
           <Wand2 className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Auto Layout</span>
+        </button>
+      )}
+
+      {/* Add Node */}
+      {canEdit && (
+        <button
+          onClick={() => onAddNode(selectedNodeId)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium bg-accent text-accent-fg hover:bg-accent/90 transition-colors"
+          title={selectedNodeId ? 'Agregar nodo hijo (Tab)' : 'Agregar nodo raíz'}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">+ Nodo</span>
         </button>
       )}
 
