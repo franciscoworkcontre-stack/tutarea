@@ -11,6 +11,7 @@ import {
   applyEdgeChanges,
   BackgroundVariant,
   ReactFlowProvider,
+  useReactFlow,
   type Connection,
   type NodeChange,
   type EdgeChange,
@@ -206,6 +207,8 @@ function MindmapCanvasInner({
   const undo = useMindmapStore((s) => s.undo);
   const redo = useMindmapStore((s) => s.redo);
 
+  const { fitView, getViewport, screenToFlowPosition } = useReactFlow();
+
   const flowRef = useRef<HTMLDivElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
@@ -375,10 +378,21 @@ function MindmapCanvasInner({
         (n) => n.data.parentNodeId === resolvedParentId
       );
       const tempId = crypto.randomUUID();
-      const position = {
-        x: (parentNode?.position.x ?? 0) + 200,
-        y: (parentNode?.position.y ?? 0) + siblings.length * 60,
-      };
+
+      let position: { x: number; y: number };
+      if (parentNode) {
+        position = {
+          x: parentNode.position.x + 200,
+          y: parentNode.position.y + siblings.length * 60,
+        };
+      } else {
+        // Place at center of current viewport so it's always visible
+        const vp = getViewport();
+        const containerEl = flowRef.current;
+        const w = containerEl?.offsetWidth ?? 800;
+        const h = containerEl?.offsetHeight ?? 600;
+        position = screenToFlowPosition({ x: w / 2, y: h / 2 });
+      }
 
       const newNode: Node<MindmapNodeData> = {
         id: tempId,
@@ -439,6 +453,7 @@ function MindmapCanvasInner({
           }))
         );
         setSelectedNodeIds([created.id]);
+        setTimeout(() => fitView({ nodes: [{ id: created.id }], duration: 300, padding: 0.5, maxZoom: 1.5 }), 50);
       } catch {
         toast.error('No se pudo crear el nodo');
         const afterNodes = useMindmapStore.getState().nodes;
@@ -447,7 +462,7 @@ function MindmapCanvasInner({
         setEdges(afterEdges.filter((e) => !e.id.includes(tempId)));
       }
     },
-    [mindmapId, addNode, setNodes, setEdges, setSelectedNodeIds]
+    [mindmapId, addNode, setNodes, setEdges, setSelectedNodeIds, fitView, getViewport, screenToFlowPosition]
   );
 
   const handleDeleteNode = useCallback(
