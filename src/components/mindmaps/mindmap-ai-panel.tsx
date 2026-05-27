@@ -135,10 +135,12 @@ export default function MindmapAiPanel({
               </div>
             )}
 
-            {!isLoading && mode === 'expand' && expandResult && (
+            {!isLoading && (mode === 'expand' || mode === 'brainstorm') && expandResult && (
               <div className="space-y-3">
                 <p className="text-xs text-text-muted">
-                  Selecciona los nodos que deseas agregar:
+                  {mode === 'brainstorm'
+                    ? 'Ideas generadas. Selecciona las que quieras agregar al mapa:'
+                    : 'Selecciona los nodos que deseas agregar:'}
                 </p>
                 <div className="space-y-1.5">
                   {expandResult.suggestions.map((s) => {
@@ -237,10 +239,10 @@ export default function MindmapAiPanel({
               </div>
             )}
 
-            {!isLoading && mode === 'brainstorm' && (
+            {!isLoading && mode === 'brainstorm' && !expandResult && (
               <div className="text-sm text-text-muted py-6 text-center">
                 <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p>Brainstorm en progreso...</p>
+                <p>No se generaron ideas. Intenta de nuevo.</p>
               </div>
             )}
 

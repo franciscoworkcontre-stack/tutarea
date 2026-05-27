@@ -222,8 +222,10 @@ function MindmapCanvasInner({
     nodeId: string;
   } | null>(null);
 
-  // Initialize store from props
+  // Initialize store from props — reset first to avoid stale nodes from previous mindmap
   useEffect(() => {
+    useMindmapStore.getState().resetStore();
+
     const flowNodes = dbNodesToFlow(initialNodes);
     const flowEdges = dbEdgesToFlow(initialEdges, initialNodes);
 
@@ -249,6 +251,7 @@ function MindmapCanvasInner({
   useEffect(() => {
     const handler = (e: Event) => {
       const { nodeId, label } = (e as CustomEvent).detail as { nodeId: string; label: string };
+      useMindmapStore.getState().pushHistory();
       updateNode(nodeId, { label });
       scheduleSave(nodeId, { label });
     };
@@ -390,6 +393,7 @@ function MindmapCanvasInner({
         },
       };
 
+      useMindmapStore.getState().pushHistory();
       addNode(newNode);
       setSelectedNodeIds([tempId]);
 
@@ -469,6 +473,7 @@ function MindmapCanvasInner({
         if (!ok) return;
       }
 
+      useMindmapStore.getState().pushHistory();
       setNodes(currentNodes.filter((n) => !toDelete.includes(n.id)));
       setEdges(
         currentEdges.filter(
@@ -586,6 +591,7 @@ function MindmapCanvasInner({
         borderColor: color,
         fillColor: color,
       };
+      useMindmapStore.getState().pushHistory();
       updateNode(nodeId, { color, styleJsonb: newStyleJsonb });
       fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, {
         method: 'PATCH',
@@ -603,6 +609,7 @@ function MindmapCanvasInner({
         ...(currentNode?.data.styleJsonb ?? {}),
         shape,
       };
+      useMindmapStore.getState().pushHistory();
       updateNode(nodeId, { styleJsonb: newStyleJsonb });
       fetch(`/api/mindmaps/${mindmapId}/nodes/${nodeId}`, {
         method: 'PATCH',
@@ -729,7 +736,15 @@ function MindmapCanvasInner({
             body: JSON.stringify({ objective: currentNodes.find((n) => n.id === selectedId)?.data.label ?? 'Ideas' }),
           });
           if (!res.ok) throw new Error('AI request failed');
-          await res.text();
+          const text = await res.text();
+          // Extract JSON from possible markdown code block
+          const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+          const jsonText = jsonMatch?.[1] ? jsonMatch[1].trim() : text.trim();
+          const tree = JSON.parse(jsonText) as { label: string; children?: { label: string }[] };
+          const suggestions = (tree.children ?? []).map((c) => c.label).filter(Boolean);
+          setExpandResult({
+            suggestions: suggestions.map((s, i) => ({ id: String(i), label: s, accepted: true })),
+          });
         } else if (action === 'convert-to-plan') {
           const res = await fetch(`/api/mindmaps/${mindmapId}/ai/convert-to-plan`, {
             method: 'POST',
@@ -794,7 +809,9 @@ function MindmapCanvasInner({
           };
           addNode(newNode);
           if (parentId) {
-            setEdges([...currentEdges, {
+            // Read fresh edges each iteration — avoids stale closure overwriting previous additions
+            const freshEdges = useMindmapStore.getState().edges;
+            setEdges([...freshEdges, {
               id: `e-${parentId}-${created.id}`,
               source: parentId,
               target: created.id,
