@@ -15,6 +15,7 @@ import {
   Edit2,
   Check,
   Clock,
+  MessageCircle,
 } from "lucide-react";
 import { formatDate, getInitials, priorityLabel, spring } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
@@ -22,6 +23,7 @@ import type { tasks, taskStatuses, projects, profiles } from "@/db/schema";
 import TimeTracker from "@/components/time-tracking/time-tracker";
 import RecurrencePicker from "@/components/recurring-tasks/recurrence-picker";
 import RecurrenceBadge from "@/components/recurring-tasks/recurrence-badge";
+import TaskComments from "@/components/tasks/task-comments";
 
 type Task = InferSelectModel<typeof tasks> & { status: InferSelectModel<typeof taskStatuses> | null };
 type Status = InferSelectModel<typeof taskStatuses>;
@@ -53,7 +55,7 @@ type Props = {
   initialRecurrence?: ApiRecurrence | null;
 };
 
-type MainTab = "detalle" | "tiempo";
+type MainTab = "detalle" | "comentarios" | "tiempo";
 
 export default function TaskDetail({ task: initialTask, project, statuses, members, currentUserId, workspaceSlug, initialRecurrence }: Props) {
   const [task, setTask] = useState(initialTask);
@@ -121,6 +123,17 @@ export default function TaskDetail({ task: initialTask, project, statuses, membe
           Detalle
         </button>
         <button
+          onClick={() => setActiveTab("comentarios")}
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "comentarios"
+              ? "border-accent text-text"
+              : "border-transparent text-text-muted hover:text-text"
+          }`}
+        >
+          <MessageCircle className="w-3.5 h-3.5" />
+          Comentarios
+        </button>
+        <button
           onClick={() => setActiveTab("tiempo")}
           className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
             activeTab === "tiempo"
@@ -134,6 +147,13 @@ export default function TaskDetail({ task: initialTask, project, statuses, membe
       </div>
 
       <div className="flex-1 overflow-auto">
+        {/* Comments tab */}
+        {activeTab === "comentarios" && (
+          <div className="max-w-2xl mx-auto px-6 py-8">
+            <TaskComments taskId={task.id} currentUserId={currentUserId} />
+          </div>
+        )}
+
         {/* Time tracking tab */}
         {activeTab === "tiempo" && (
           <div className="max-w-2xl mx-auto px-6 py-8">
