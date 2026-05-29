@@ -18,6 +18,8 @@ const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
 
 export const db = drizzle(
   async (sql, params, method) => {
+    console.log("[db-sql]", sql.slice(0, 150), "| params:", JSON.stringify(params).slice(0, 80));
+
     const { data, error } = await supabaseAdmin.rpc("drizzle_query", {
       query_sql: sql,
       query_params: params,
@@ -25,14 +27,24 @@ export const db = drizzle(
     });
 
     if (error) {
-      console.error("[db] RPC error:", error.message, "| sql:", sql.slice(0, 120));
+      console.error("[db-rpc-error]", error.message);
       throw new Error(`DB query failed: ${error.message}`);
     }
 
-    console.log("[db] data type:", typeof data, "| isArray:", Array.isArray(data), "| preview:", JSON.stringify(data)?.slice(0, 200));
+    let parsed: unknown;
+    if (typeof data === "string") {
+      try {
+        parsed = JSON.parse(data);
+      } catch (e) {
+        console.error("[db-parse-fail-a]", data.slice(0, 120));
+        console.error("[db-parse-fail-b]", data.slice(120, 240));
+        console.error("[db-parse-fail-c]", data.slice(-80));
+        throw e;
+      }
+    } else {
+      parsed = data;
+    }
 
-    // drizzle_query returns TEXT; parse it regardless of how PostgREST serialized it
-    const parsed: unknown = typeof data === "string" ? JSON.parse(data) : data;
     const rows =
       method === "execute"
         ? []
