@@ -1,43 +1,28 @@
-import { drizzle } from "drizzle-orm/pg-proxy";
-import { createClient } from "@supabase/supabase-js";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import * as schema from "./schema";
 
-const supabaseUrl = process.env["NEXT_PUBLIC_SUPABASE_URL"];
-const serviceRoleKey = process.env["SUPABASE_SERVICE_ROLE_KEY"];
-
-if (!supabaseUrl || !serviceRoleKey) {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in production");
+function getClient() {
+  const connectionString = process.env["DATABASE_URL"];
+  if (!connectionString || connectionString === "your_postgres_connection_string") {
+    return null;
   }
-  throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
+  return postgres(connectionString, {
+    prepare: false,
+    max: 1,
+    ssl: "require",
+  });
 }
 
-const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-  auth: { persistSession: false },
-});
+const client = getClient();
 
-export const db = drizzle(
-  async (sql, params, method) => {
-    const { data, error } = await supabaseAdmin.rpc("drizzle_query", {
-      query_sql: sql,
-      query_params: params,
-      query_method: method,
-    });
+if (!client) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("DATABASE_URL is not configured in production");
+  }
+  throw new Error("DATABASE_URL is not configured. Set it in .env.local for local development.");
+}
 
-    if (error) throw new Error(`DB query failed: ${error.message}`);
-
-    // pg-proxy expects rows as arrays (row[columnIndex]), not objects
-    const rows =
-      method === "execute"
-        ? []
-        : (Array.isArray(data) ? data : []).map((row: Record<string, unknown>) =>
-            Object.values(row)
-          );
-
-    return { rows };
-  },
-  { schema }
-);
-
+export const db = drizzle(client, { schema });
 export type DB = typeof db;
 export * from "./schema";
