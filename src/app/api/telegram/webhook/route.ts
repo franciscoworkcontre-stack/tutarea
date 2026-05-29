@@ -823,6 +823,7 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
 // ── Main POST handler ─────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
+  console.log("[webhook-entry]", new Date().toISOString());
   const secret = request.headers.get("x-telegram-bot-api-secret-token");
   const expectedSecret = process.env["TELEGRAM_WEBHOOK_SECRET"];
   if (expectedSecret && secret !== expectedSecret) {
