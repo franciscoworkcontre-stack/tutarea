@@ -1,4 +1,4 @@
-import { NextResponse, after } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/db";
 
 export const dynamic = "force-dynamic";
@@ -837,30 +837,27 @@ export async function POST(request: Request) {
 
   const update = (await request.json()) as TelegramUpdate;
 
-  // Respond to Telegram immediately so it doesn't retry on timeout.
-  // All processing happens in after() which runs after the response is sent.
-  after(async () => {
-    console.log("[webhook]", JSON.stringify({
-      type: update.callback_query ? "callback" : update.message ? "message" : "other",
-      chat_type: update.message?.chat.type,
-      text: update.message?.text?.slice(0, 80),
-    }));
-    try {
-      if (update.callback_query) {
-        await handleCallbackQuery(update.callback_query);
-      } else if (update.message) {
-        const isGroup =
-          update.message.chat.type === "group" || update.message.chat.type === "supergroup";
-        if (isGroup) {
-          await handleGroupMessage(update.message);
-        } else {
-          await handlePrivateMessage(update.message);
-        }
+  console.log("[webhook]", JSON.stringify({
+    type: update.callback_query ? "callback" : update.message ? "message" : "other",
+    chat_type: update.message?.chat.type,
+    text: update.message?.text?.slice(0, 80),
+  }));
+
+  try {
+    if (update.callback_query) {
+      await handleCallbackQuery(update.callback_query);
+    } else if (update.message) {
+      const isGroup =
+        update.message.chat.type === "group" || update.message.chat.type === "supergroup";
+      if (isGroup) {
+        await handleGroupMessage(update.message);
+      } else {
+        await handlePrivateMessage(update.message);
       }
-    } catch (err) {
-      console.error("Webhook error:", err);
     }
-  });
+  } catch (err) {
+    console.error("Webhook error:", err);
+  }
 
   return NextResponse.json({ ok: true });
 }

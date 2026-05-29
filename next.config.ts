@@ -1,9 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  experimental: {
-    after: true,
-  },
+  experimental: {},
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**.supabase.co" },
