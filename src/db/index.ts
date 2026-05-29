@@ -17,10 +17,13 @@ function getClient() {
 
 const client = getClient();
 
-if (!client && process.env.NODE_ENV === "production") {
-  throw new Error("DATABASE_URL is not configured in production");
+if (!client) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("DATABASE_URL is not configured in production");
+  }
+  throw new Error("DATABASE_URL is not configured. Set it in .env.local for local development.");
 }
 
-export const db = drizzle(client ?? postgres("postgresql://localhost/tutarea_dev", { prepare: false, max: 1 }), { schema });
+export const db = drizzle(client, { schema });
 export type DB = typeof db;
 export * from "./schema";
