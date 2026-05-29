@@ -3,6 +3,11 @@
   "buildCommand": "pnpm build",
   "installCommand": "pnpm install",
   "devCommand": "pnpm dev",
+  "functions": {
+    "src/app/api/**": {
+      "maxDuration": 15
+    }
+  },
   "crons": [
     {
       "path": "/api/telegram/daily-digest",
