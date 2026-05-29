@@ -24,7 +24,12 @@ export const db = drizzle(
       query_method: method,
     });
 
-    if (error) throw new Error(`DB query failed: ${error.message}`);
+    if (error) {
+      console.error("[db] RPC error:", error.message, "| sql:", sql.slice(0, 120));
+      throw new Error(`DB query failed: ${error.message}`);
+    }
+
+    console.log("[db] data type:", typeof data, "| isArray:", Array.isArray(data), "| preview:", JSON.stringify(data)?.slice(0, 200));
 
     // drizzle_query returns TEXT; parse it regardless of how PostgREST serialized it
     const parsed: unknown = typeof data === "string" ? JSON.parse(data) : data;
