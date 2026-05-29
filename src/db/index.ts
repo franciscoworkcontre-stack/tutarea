@@ -26,11 +26,12 @@ export const db = drizzle(
 
     if (error) throw new Error(`DB query failed: ${error.message}`);
 
-    // pg-proxy expects rows as arrays (row[columnIndex]), not objects
+    // drizzle_query returns TEXT; parse it regardless of how PostgREST serialized it
+    const parsed: unknown = typeof data === "string" ? JSON.parse(data) : data;
     const rows =
       method === "execute"
         ? []
-        : (Array.isArray(data) ? data : []).map((row: Record<string, unknown>) =>
+        : (Array.isArray(parsed) ? parsed : []).map((row: Record<string, unknown>) =>
             Object.values(row)
           );
 
