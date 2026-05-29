@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 const APP_URL = process.env["NEXT_PUBLIC_APP_URL"] ?? "https://tutarea-tusalarioio.vercel.app";
 const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"];
 

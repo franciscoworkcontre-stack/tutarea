@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
+
+export const dynamic = "force-dynamic";
 import {
   profiles,
   tasks,
@@ -141,33 +143,34 @@ async function transcribeVoice(fileId: string): Promise<string> {
 // ── Context helper ──────────────────────────────────────────────────────────
 
 async function getUserContext(chatId: number): Promise<UserContext | null> {
-  const profile = await db.query.profiles.findFirst({
-    where: eq(profiles.telegramChatId, chatId.toString()),
-  });
+  const [profile] = await db.select().from(profiles)
+    .where(eq(profiles.telegramChatId, chatId.toString()))
+    .limit(1);
   if (!profile) return null;
 
-  const membership = await db.query.workspaceMembers.findFirst({
-    where: eq(workspaceMembers.userId, profile.id),
-    with: { workspace: true },
-  });
-  if (!membership) return null;
+  const [row] = await db
+    .select({ member: workspaceMembers, workspace: workspaces })
+    .from(workspaceMembers)
+    .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
+    .where(eq(workspaceMembers.userId, profile.id))
+    .limit(1);
+  if (!row) return null;
 
   return {
     profile,
-    workspaceId: membership.workspaceId,
-    workspaceName: membership.workspace.name,
-    workspaceSlug: membership.workspace.slug,
+    workspaceId: row.member.workspaceId,
+    workspaceName: row.workspace.name,
+    workspaceSlug: row.workspace.slug,
   };
 }
 
 // ── Project resolution ──────────────────────────────────────────────────────
 
 async function getActiveProjects(workspaceId: string): Promise<ProjectRow[]> {
-  return db.query.projects.findMany({
-    where: and(eq(projects.workspaceId, workspaceId), eq(projects.status, "active")),
-    orderBy: [projects.updatedAt],
-    limit: 10,
-  });
+  return db.select().from(projects)
+    .where(and(eq(projects.workspaceId, workspaceId), eq(projects.status, "active")))
+    .orderBy(projects.updatedAt)
+    .limit(10);
 }
 
 function resolveProjectFromHint(projectList: ProjectRow[], hint: string | null | undefined): ProjectRow | undefined {
@@ -232,12 +235,12 @@ async function createTask(
   priority: string,
   inboxId?: string,
 ) {
-  const defaultStatus = await db.query.taskStatuses.findFirst({
-    where: eq(taskStatuses.projectId, project.id),
-    orderBy: [taskStatuses.position],
-  });
+  const [defaultStatus] = await db.select().from(taskStatuses)
+    .where(eq(taskStatuses.projectId, project.id))
+    .orderBy(taskStatuses.position)
+    .limit(1);
 
-  const taskCount = await db.query.tasks.findMany({ where: eq(tasks.projectId, project.id) });
+  const taskCount = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.projectId, project.id));
   const taskKey = `${project.key}-${taskCount.length + 1}`;
   const finalPriority = priority as "no_priority" | "low" | "medium" | "high" | "urgent";
 
@@ -321,12 +324,12 @@ async function resolveAndCreate(
 
 async function handleStart(chatId: number, text: string, message: NonNullable<TelegramUpdate["message"]>) {
   const code = text.replace("/start link_", "").trim();
-  const profileWithCode = await db.query.profiles.findFirst({
-    where: and(
+  const [profileWithCode] = await db.select().from(profiles)
+    .where(and(
       eq(profiles.telegramLinkCode, code),
       gt(profiles.telegramLinkCodeExpiresAt, new Date()),
-    ),
-  });
+    ))
+    .limit(1);
 
   if (!profileWithCode) {
     await sendTelegramMessage(chatId, "❌ Código inválido o expirado. Genera uno nuevo desde la app.");
@@ -374,21 +377,22 @@ async function handleTarea(chatId: number, title: string, ctx: UserContext, mess
 }
 
 async function handleMisTareas(chatId: number, ctx: UserContext) {
-  const myTasks = await db.query.tasks.findMany({
-    where: and(eq(tasks.assigneeId, ctx.profile.id), isNull(tasks.archivedAt)),
-    orderBy: [tasks.createdAt],
-    limit: 5,
-    with: { project: true },
-  });
+  const myTaskRows = await db
+    .select({ task: tasks, project: projects })
+    .from(tasks)
+    .leftJoin(projects, eq(projects.id, tasks.projectId))
+    .where(and(eq(tasks.assigneeId, ctx.profile.id), isNull(tasks.archivedAt)))
+    .orderBy(tasks.createdAt)
+    .limit(5);
 
-  if (myTasks.length === 0) {
+  if (myTaskRows.length === 0) {
     await sendTelegramMessage(chatId, "🎉 ¡No tienes tareas pendientes asignadas!");
     return;
   }
 
-  const lines = myTasks.map((t, i) => {
+  const lines = myTaskRows.map(({ task: t, project: p }, i) => {
     const prio = PRIORITY_EMOJI[t.priority ?? "no_priority"] ?? "⚪";
-    return `${i + 1}. ${prio} *${t.title}*\n   📁 ${t.project?.name ?? "—"} · \`${t.key}\``;
+    return `${i + 1}. ${prio} *${t.title}*\n   📁 ${p?.name ?? "—"} · \`${t.key}\``;
   });
 
   await sendTelegramMessage(chatId, `📋 *Tus tareas activas*\n\n${lines.join("\n\n")}`);
@@ -400,26 +404,27 @@ async function handleHoy(chatId: number, ctx: UserContext) {
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  const todayTasks = await db.query.tasks.findMany({
-    where: and(
+  const todayTaskRows = await db
+    .select({ task: tasks, project: projects })
+    .from(tasks)
+    .leftJoin(projects, eq(projects.id, tasks.projectId))
+    .where(and(
       eq(tasks.workspaceId, ctx.workspaceId),
       eq(tasks.assigneeId, ctx.profile.id),
       isNull(tasks.archivedAt),
       gt(tasks.dueDate, today),
       lt(tasks.dueDate, tomorrow),
-    ),
-    with: { project: true },
-    limit: 10,
-  });
+    ))
+    .limit(10);
 
-  if (todayTasks.length === 0) {
+  if (todayTaskRows.length === 0) {
     await sendTelegramMessage(chatId, `📅 No tienes tareas con vencimiento hoy.\n\nUsa /mis_tareas para ver tus pendientes.`);
     return;
   }
 
-  const lines = todayTasks.map((t) => {
+  const lines = todayTaskRows.map(({ task: t, project: p }) => {
     const prio = PRIORITY_EMOJI[t.priority ?? "no_priority"] ?? "⚪";
-    return `• ${prio} *${t.title}* — 📁 ${t.project?.name ?? "—"}`;
+    return `• ${prio} *${t.title}* — 📁 ${p?.name ?? "—"}`;
   });
 
   await sendTelegramMessage(chatId, `📅 *Tareas para hoy*\n\n${lines.join("\n")}`);
@@ -428,28 +433,29 @@ async function handleHoy(chatId: number, ctx: UserContext) {
 async function handleVencidas(chatId: number, ctx: UserContext) {
   const now = new Date();
 
-  const overdueTasks = await db.query.tasks.findMany({
-    where: and(
+  const overdueTaskRows = await db
+    .select({ task: tasks, project: projects })
+    .from(tasks)
+    .leftJoin(projects, eq(projects.id, tasks.projectId))
+    .where(and(
       eq(tasks.workspaceId, ctx.workspaceId),
       eq(tasks.assigneeId, ctx.profile.id),
       isNull(tasks.archivedAt),
       lt(tasks.dueDate, now),
-    ),
-    with: { project: true },
-    limit: 10,
-  });
+    ))
+    .limit(10);
 
-  if (overdueTasks.length === 0) {
+  if (overdueTaskRows.length === 0) {
     await sendTelegramMessage(chatId, "✅ No tienes tareas vencidas. ¡Buen trabajo!");
     return;
   }
 
-  const lines = overdueTasks.map((t) => {
+  const lines = overdueTaskRows.map(({ task: t, project: p }) => {
     const due = t.dueDate ? new Date(t.dueDate).toLocaleDateString("es-CL") : "—";
-    return `• 🔴 *${t.title}*\n  Venció: ${due} · 📁 ${t.project?.name ?? "—"}`;
+    return `• 🔴 *${t.title}*\n  Venció: ${due} · 📁 ${p?.name ?? "—"}`;
   });
 
-  await sendTelegramMessage(chatId, `⚠️ *Tareas vencidas (${overdueTasks.length})*\n\n${lines.join("\n\n")}`);
+  await sendTelegramMessage(chatId, `⚠️ *Tareas vencidas (${overdueTaskRows.length})*\n\n${lines.join("\n\n")}`);
 }
 
 async function handleProyectos(chatId: number, ctx: UserContext) {
@@ -720,11 +726,10 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
     const projectPrefix = parts[1]!;
 
     // Find inbox record by prefix match
-    const allInbox = await db.query.telegramInbox.findMany({
-      where: and(eq(telegramInbox.userId, ctx.profile.id), eq(telegramInbox.status, "pending")),
-      orderBy: [telegramInbox.createdAt],
-      limit: 20,
-    });
+    const allInbox = await db.select().from(telegramInbox)
+      .where(and(eq(telegramInbox.userId, ctx.profile.id), eq(telegramInbox.status, "pending")))
+      .orderBy(telegramInbox.createdAt)
+      .limit(20);
     const inbox = allInbox.find((r) => r.id.startsWith(inboxPrefix));
     if (!inbox) {
       await sendTelegramMessage(chatId, "❌ No encontré la tarea pendiente. Vuelve a intentarlo.");
@@ -767,13 +772,13 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
   // ── Confirm text task: ct_<messageId> ──
   if (data.startsWith("ct_")) {
     const messageId = parseInt(data.slice(3));
-    const inbox = await db.query.telegramInbox.findFirst({
-      where: and(
+    const [inbox] = await db.select().from(telegramInbox)
+      .where(and(
         eq(telegramInbox.userId, ctx.profile.id),
         eq(telegramInbox.messageId, messageId.toString()),
         eq(telegramInbox.status, "pending"),
-      ),
-    });
+      ))
+      .limit(1);
 
     if (!inbox || !inbox.rawText) {
       await sendTelegramMessage(chatId, "❌ No encontré el mensaje original.");
