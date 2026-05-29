@@ -6,12 +6,15 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 10;
 
 export async function GET() {
-  const url = process.env["NEXT_PUBLIC_SUPABASE_URL"] ?? "";
+  const url = (process.env["NEXT_PUBLIC_SUPABASE_URL"] ?? "").trim();
   const key = (process.env["SUPABASE_SERVICE_ROLE_KEY"] ?? "").trim();
 
   const results: Record<string, unknown> = {
     node_version: process.version,
     url_present: !!url,
+    url_raw_length: process.env["NEXT_PUBLIC_SUPABASE_URL"]?.length ?? 0,
+    url_trimmed_length: url.length,
+    url_last_4: url.slice(-4),
     key_length: key.length,
     key_first_4: key.slice(0, 4),
     key_last_4: key.slice(-4),
