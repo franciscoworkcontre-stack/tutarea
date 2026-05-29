@@ -659,8 +659,8 @@ async function handleGroupMessage(message: NonNullable<TelegramUpdate["message"]
   const chatTitle = message.chat.title ?? "Grupo";
   const text = message.text;
 
-  if (text?.startsWith("/link")) {
-    const slug = text.replace("/link", "").trim();
+  if (text?.match(/^\/link(@\w+)?(\s|$)/)) {
+    const slug = text.replace(/^\/link(@\w+)?\s*/, "").trim();
     if (!slug) {
       await sendTelegramMessage(chatId, "❌ Uso: `/link <workspace-slug>`\nEjemplo: `/link mi-empresa`");
       return;
