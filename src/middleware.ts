@@ -7,6 +7,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/telegram/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Exclude static assets, images, API routes (they handle auth themselves),
+    // and Telegram webhook routes. Only run middleware on page routes.
+    "/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };
