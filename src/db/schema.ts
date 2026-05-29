@@ -440,7 +440,7 @@ export const workspaceTelegramGroups = pgTable("workspace_telegram_groups", {
   chatId: text("chat_id").notNull().unique(),
   chatTitle: text("chat_title"),
   linkedBy: uuid("linked_by"),
-  createdAt: timestamp("created_at", { withTimezone: true })
+  linkedAt: timestamp("linked_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
