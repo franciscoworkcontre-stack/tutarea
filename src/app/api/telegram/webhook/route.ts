@@ -16,7 +16,7 @@ import {
 } from "@/db/schema";
 import { eq, and, gt, lt, isNull } from "drizzle-orm";
 import { generateKeyBetween } from "fractional-indexing";
-import { sendTelegramMessage } from "@/lib/telegram";
+import { sendTelegramMessage, answerCallbackQuery } from "@/lib/telegram";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -707,11 +707,7 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
 
   const data = query.data ?? "";
 
-  await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/answerCallbackQuery`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ callback_query_id: query.id }),
-  });
+  await answerCallbackQuery(query.id);
 
   if (data === "dismiss") {
     await sendTelegramMessage(chatId, "👍 OK, cancelado.");

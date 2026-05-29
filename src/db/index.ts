@@ -81,6 +81,10 @@ export const db = drizzle(
     let parsed: unknown;
     try {
       parsed = JSON.parse(data);
+      // PostgREST wraps scalar TEXT function returns as a JSON string — double-parse it.
+      if (typeof parsed === "string") {
+        parsed = JSON.parse(parsed);
+      }
     } catch (e) {
       console.error("[db-parse-fail-a]", data.slice(0, 120));
       console.error("[db-parse-fail-b]", data.slice(120, 240));

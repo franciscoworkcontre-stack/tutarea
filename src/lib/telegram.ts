@@ -2,6 +2,30 @@ import * as https from "node:https";
 
 // Use node:https instead of fetch/undici to avoid the Node 24 + Vercel
 // bug where undici fetch hangs indefinitely for external HTTPS requests.
+function httpsGet(url: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = https.request(
+      {
+        hostname: parsed.hostname,
+        port: 443,
+        path: parsed.pathname + parsed.search,
+        method: "GET",
+        headers: { Connection: "close" },
+        timeout: 15000,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (c: Buffer) => chunks.push(c));
+        res.on("end", () => resolve(Buffer.concat(chunks)));
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("HTTPS GET timeout")));
+    req.on("error", reject);
+    req.end();
+  });
+}
+
 function telegramPost(token: string, method: string, body: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const payload = JSON.stringify(body);
@@ -32,6 +56,25 @@ function telegramPost(token: string, method: string, body: Record<string, unknow
     req.write(payload);
     req.end();
   });
+}
+
+export async function getTelegramFileUrl(fileId: string): Promise<string> {
+  const token = process.env["TELEGRAM_BOT_TOKEN"]?.trim();
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN not set");
+  const buf = await httpsGet(`https://api.telegram.org/bot${token}/getFile?file_id=${fileId}`);
+  const data = JSON.parse(buf.toString()) as { ok: boolean; result?: { file_path: string } };
+  if (!data.ok || !data.result?.file_path) throw new Error("Could not get file path");
+  return `https://api.telegram.org/file/bot${token}/${data.result.file_path}`;
+}
+
+export async function downloadTelegramFile(fileUrl: string): Promise<Buffer> {
+  return httpsGet(fileUrl);
+}
+
+export async function answerCallbackQuery(callbackQueryId: string) {
+  const token = process.env["TELEGRAM_BOT_TOKEN"]?.trim();
+  if (!token) return;
+  await telegramPost(token, "answerCallbackQuery", { callback_query_id: callbackQueryId });
 }
 
 export async function sendTelegramMessage(chatId: number, text: string, replyMarkup?: unknown) {
