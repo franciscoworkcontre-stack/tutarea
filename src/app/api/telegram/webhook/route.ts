@@ -820,11 +820,18 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
 
 export async function POST(request: Request) {
   const secret = request.headers.get("x-telegram-bot-api-secret-token");
-  if (secret !== process.env["TELEGRAM_WEBHOOK_SECRET"]) {
+  const expectedSecret = process.env["TELEGRAM_WEBHOOK_SECRET"];
+  if (expectedSecret && secret !== expectedSecret) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const update = (await request.json()) as TelegramUpdate;
+
+  console.log("[webhook]", JSON.stringify({
+    type: update.callback_query ? "callback" : update.message ? "message" : "other",
+    chat_type: update.message?.chat.type,
+    text: update.message?.text?.slice(0, 80),
+  }));
 
   try {
     if (update.callback_query) {
