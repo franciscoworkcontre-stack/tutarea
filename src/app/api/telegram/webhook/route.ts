@@ -16,7 +16,7 @@ import {
 } from "@/db/schema";
 import { eq, and, gt, lt, isNull } from "drizzle-orm";
 import { generateKeyBetween } from "fractional-indexing";
-import { sendTelegramMessage, answerCallbackQuery } from "@/lib/telegram";
+import { sendTelegramMessage, answerCallbackQuery, getTelegramFileUrl, downloadTelegramFile } from "@/lib/telegram";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -107,7 +107,6 @@ const PRIORITY_EMOJI: Record<string, string> = {
 };
 
 const APP_URL = process.env["NEXT_PUBLIC_APP_URL"] ?? "https://tutarea-tusalarioio.vercel.app";
-const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"]!;
 
 // ── AI helpers ──────────────────────────────────────────────────────────────
 
@@ -124,13 +123,8 @@ async function parseTaskWithClaude(text: string): Promise<ParsedTask> {
 }
 
 async function transcribeVoice(fileId: string): Promise<string> {
-  const fileRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/getFile?file_id=${fileId}`);
-  const fileData = await fileRes.json() as { ok: boolean; result?: { file_path: string } };
-  if (!fileData.ok || !fileData.result?.file_path) throw new Error("Could not get file path");
-
-  const audioUrl = `https://api.telegram.org/file/bot${BOT_TOKEN}/${fileData.result.file_path}`;
-  const audioRes = await fetch(audioUrl);
-  const audioBuffer = await audioRes.arrayBuffer();
+  const audioUrl = await getTelegramFileUrl(fileId);
+  const audioBuffer = await downloadTelegramFile(audioUrl);
   const audioFile = new File([new Blob([audioBuffer], { type: "audio/ogg" })], "voice.ogg", { type: "audio/ogg" });
 
   const transcription = await (await getOpenAI()).audio.transcriptions.create({
