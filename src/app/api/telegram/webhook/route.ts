@@ -661,12 +661,14 @@ async function handleGroupMessage(message: NonNullable<TelegramUpdate["message"]
 
   if (text?.match(/^\/link(@\w+)?(\s|$)/)) {
     const slug = text.replace(/^\/link(@\w+)?\s*/, "").trim();
+    console.log("[group-link] slug:", slug, "chatId:", chatId);
     if (!slug) {
       await sendTelegramMessage(chatId, "❌ Uso: `/link <workspace-slug>`\nEjemplo: `/link mi-empresa`");
       return;
     }
 
-    const workspace = await db.query.workspaces.findFirst({ where: eq(workspaces.slug, slug) });
+    const [workspace] = await db.select().from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
+    console.log("[group-link] workspace found:", workspace?.id ?? "null");
     if (!workspace) {
       await sendTelegramMessage(chatId, `❌ No encontré el workspace *${slug}*. Verifica el slug en tutarea.`);
       return;
@@ -680,10 +682,12 @@ async function handleGroupMessage(message: NonNullable<TelegramUpdate["message"]
         set: { workspaceId: workspace.id, chatTitle },
       });
 
+    console.log("[group-link] inserted, sending reply");
     await sendTelegramMessage(
       chatId,
       `✅ Grupo vinculado a *${workspace.name}*\n\nDe lunes a viernes a las 9 AM recibirán el resumen diario de tareas del equipo.`,
     );
+    console.log("[group-link] done");
   }
 }
 
