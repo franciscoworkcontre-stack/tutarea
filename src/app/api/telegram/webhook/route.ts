@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 import {
   profiles,
@@ -829,13 +830,20 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
 // ── Main POST handler ─────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
+  console.log("[webhook-entry] handler started");
   const secret = request.headers.get("x-telegram-bot-api-secret-token");
   const expectedSecret = process.env["TELEGRAM_WEBHOOK_SECRET"];
   if (expectedSecret && secret !== expectedSecret) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const update = (await request.json()) as TelegramUpdate;
+  let update: TelegramUpdate;
+  try {
+    update = (await request.json()) as TelegramUpdate;
+  } catch {
+    console.error("[webhook-entry] failed to parse JSON");
+    return NextResponse.json({ ok: true });
+  }
 
   console.log("[webhook]", JSON.stringify({
     type: update.callback_query ? "callback" : update.message ? "message" : "other",
