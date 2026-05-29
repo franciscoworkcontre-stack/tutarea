@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { db } from "@/db";
 
 export const dynamic = "force-dynamic";
+
 import {
   profiles,
   tasks,
@@ -13,8 +14,6 @@ import {
   workspaceTelegramGroups,
 } from "@/db/schema";
 import { eq, and, gt, lt, isNull } from "drizzle-orm";
-import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
 import { generateKeyBetween } from "fractional-indexing";
 import { sendTelegramMessage } from "@/lib/telegram";
 
@@ -63,13 +62,15 @@ type UserContext = {
 
 type ProjectRow = typeof projects.$inferSelect;
 
-// ── AI clients (lazy — not initialized at module level to avoid build errors) ──
+// ── AI clients (dynamic imports — not bundled at cold start) ──
 
-function getAnthropic() {
+async function getAnthropic() {
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
   return new Anthropic({ apiKey: process.env["ANTHROPIC_API_KEY"] });
 }
 
-function getOpenAI() {
+async function getOpenAI() {
+  const { default: OpenAI } = await import("openai");
   return new OpenAI({ apiKey: process.env["OPENAI_API_KEY"] });
 }
 
@@ -110,7 +111,7 @@ const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"]!;
 // ── AI helpers ──────────────────────────────────────────────────────────────
 
 async function parseTaskWithClaude(text: string): Promise<ParsedTask> {
-  const response = await getAnthropic().messages.create({
+  const response = await (await getAnthropic()).messages.create({
     model: "claude-haiku-4-5",
     max_tokens: 512,
     system: SYSTEM_PROMPT,
@@ -131,7 +132,7 @@ async function transcribeVoice(fileId: string): Promise<string> {
   const audioBuffer = await audioRes.arrayBuffer();
   const audioFile = new File([new Blob([audioBuffer], { type: "audio/ogg" })], "voice.ogg", { type: "audio/ogg" });
 
-  const transcription = await getOpenAI().audio.transcriptions.create({
+  const transcription = await (await getOpenAI()).audio.transcriptions.create({
     file: audioFile,
     model: "whisper-1",
     language: "es",
@@ -828,7 +829,6 @@ async function handleCallbackQuery(query: NonNullable<TelegramUpdate["callback_q
 // ── Main POST handler ─────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
-  console.log("[webhook-entry]", new Date().toISOString());
   const secret = request.headers.get("x-telegram-bot-api-secret-token");
   const expectedSecret = process.env["TELEGRAM_WEBHOOK_SECRET"];
   if (expectedSecret && secret !== expectedSecret) {
@@ -837,27 +837,30 @@ export async function POST(request: Request) {
 
   const update = (await request.json()) as TelegramUpdate;
 
-  console.log("[webhook]", JSON.stringify({
-    type: update.callback_query ? "callback" : update.message ? "message" : "other",
-    chat_type: update.message?.chat.type,
-    text: update.message?.text?.slice(0, 80),
-  }));
-
-  try {
-    if (update.callback_query) {
-      await handleCallbackQuery(update.callback_query);
-    } else if (update.message) {
-      const isGroup =
-        update.message.chat.type === "group" || update.message.chat.type === "supergroup";
-      if (isGroup) {
-        await handleGroupMessage(update.message);
-      } else {
-        await handlePrivateMessage(update.message);
+  // Respond to Telegram immediately so it doesn't retry on timeout.
+  // All processing happens in after() which runs after the response is sent.
+  after(async () => {
+    console.log("[webhook]", JSON.stringify({
+      type: update.callback_query ? "callback" : update.message ? "message" : "other",
+      chat_type: update.message?.chat.type,
+      text: update.message?.text?.slice(0, 80),
+    }));
+    try {
+      if (update.callback_query) {
+        await handleCallbackQuery(update.callback_query);
+      } else if (update.message) {
+        const isGroup =
+          update.message.chat.type === "group" || update.message.chat.type === "supergroup";
+        if (isGroup) {
+          await handleGroupMessage(update.message);
+        } else {
+          await handlePrivateMessage(update.message);
+        }
       }
+    } catch (err) {
+      console.error("Webhook error:", err);
     }
-  } catch (err) {
-    console.error("Webhook error:", err);
-  }
+  });
 
   return NextResponse.json({ ok: true });
 }
