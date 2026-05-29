@@ -28,9 +28,9 @@ export async function GET() {
   // Test B: DNS lookup for Supabase host
   const tB = Date.now();
   try {
-    const { dns } = await import("node:dns/promises");
+    const dnsPromises = await import("node:dns/promises");
     const addrs = await Promise.race([
-      dns.resolve4("oxkrcwdqplelntxrelcw.supabase.co"),
+      dnsPromises.resolve4("oxkrcwdqplelntxrelcw.supabase.co"),
       sleep(3000).then(() => { throw new Error("DNS timeout after 3s"); }),
     ]);
     results.dns_addrs = addrs;
