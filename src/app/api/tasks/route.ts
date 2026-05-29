@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { tasks, taskStatuses, projects, workspaceMembers } from "@/db/schema";
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { tasks, taskStatuses, projects, workspaceMembers, profiles } from "@/db/schema";
+import { eq, and, isNull } from "drizzle-orm";
 import { generateKeyBetween } from "fractional-indexing";
 import { runAutomations } from "@/lib/automations/automation-engine";
 
@@ -13,6 +13,36 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const projectId = searchParams.get("projectId");
+  const parentTaskId = searchParams.get("parentTaskId");
+
+  // If parentTaskId is provided, fetch subtasks for that task
+  if (parentTaskId) {
+    const subtasks = await db.query.tasks.findMany({
+      where: and(
+        eq(tasks.parentTaskId, parentTaskId),
+        isNull(tasks.archivedAt),
+      ),
+      with: {
+        status: true,
+      },
+      orderBy: [tasks.createdAt],
+    });
+
+    // Fetch assignee profiles
+    const assigneeIds = [...new Set(subtasks.map((t) => t.assigneeId).filter(Boolean))] as string[];
+    const assigneeProfiles = assigneeIds.length > 0
+      ? await Promise.all(assigneeIds.map((id) => db.query.profiles.findFirst({ where: eq(profiles.id, id) })))
+      : [];
+    const profileMap = new Map(assigneeProfiles.filter(Boolean).map((p) => [p!.id, p]));
+
+    const subtasksWithAssignee = subtasks.map((t) => ({
+      ...t,
+      assignee: t.assigneeId ? (profileMap.get(t.assigneeId) ?? null) : null,
+    }));
+
+    return NextResponse.json({ tasks: subtasksWithAssignee });
+  }
+
   if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
 
   const projectTasks = await db.query.tasks.findMany({

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { tasks, taskStatuses, projects, workspaceMembers, profiles } from "@/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, isNotNull } from "drizzle-orm";
 import BoardView from "@/components/tasks/board-view";
 
 type Props = {
@@ -45,6 +45,23 @@ export default async function BoardPage({ params }: Props) {
     orderBy: [tasks.position],
   });
 
+  // Fetch subtasks for count badges
+  const doneStatus = statuses.find((s) => s.type === "done");
+  const allSubtasks = await db.query.tasks.findMany({
+    where: and(
+      eq(tasks.projectId, projectId),
+      isNull(tasks.archivedAt),
+      isNotNull(tasks.parentTaskId),
+    ),
+  });
+  const subtaskCounts: Record<string, { total: number; completed: number }> = {};
+  for (const st of allSubtasks) {
+    if (!st.parentTaskId) continue;
+    if (!subtaskCounts[st.parentTaskId]) subtaskCounts[st.parentTaskId] = { total: 0, completed: 0 };
+    subtaskCounts[st.parentTaskId]!.total++;
+    if (doneStatus && st.statusId === doneStatus.id) subtaskCounts[st.parentTaskId]!.completed++;
+  }
+
   const workspaceUsers = await db.query.workspaceMembers.findMany({
     where: eq(workspaceMembers.workspaceId, project.workspaceId),
   });
@@ -69,6 +86,7 @@ export default async function BoardPage({ params }: Props) {
       members={members}
       currentUserId={user.id}
       workspaceSlug={workspaceSlug}
+      subtaskCounts={subtaskCounts}
     />
   );
 }

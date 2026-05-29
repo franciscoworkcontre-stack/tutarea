@@ -3,7 +3,7 @@
 import { useState, Fragment } from "react";
 import { useNow } from "@/lib/hooks";
 import Link from "next/link";
-import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, Check } from "lucide-react";
+import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, GanttChart, LayoutGrid, Plus, Check, ListChecks } from "lucide-react";
 import { cn, formatRelativeDate, getInitials } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
 import type { tasks, taskStatuses, projects, profiles } from "@/db/schema";
@@ -16,6 +16,8 @@ type Project = InferSelectModel<typeof projects>;
 type Profile = InferSelectModel<typeof profiles>;
 type Member = { userId: string; role: string; profile: Profile | null };
 
+type SubtaskCount = { total: number; completed: number };
+
 type Props = {
   project: Project;
   statuses: Status[];
@@ -23,6 +25,7 @@ type Props = {
   members: Member[];
   currentUserId: string;
   workspaceSlug: string;
+  subtaskCounts?: Record<string, SubtaskCount>;
 };
 
 const PriorityDot = ({ priority }: { priority: string }) => {
@@ -53,6 +56,7 @@ export default function ListView({
   members,
   currentUserId,
   workspaceSlug,
+  subtaskCounts,
 }: Props) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [adding, setAdding] = useState<string | null>(null);
@@ -229,12 +233,20 @@ export default function ListView({
                       </td>
                       <td className="px-2 py-2.5">
                         <div className="flex flex-col gap-1">
-                          <Link
-                            href={`/app/${workspaceSlug}/projects/${project.id}/tasks/${task.id}`}
-                            className={cn("hover:text-accent transition-colors line-clamp-1", isDone && "line-through text-text-muted")}
-                          >
-                            {task.title}
-                          </Link>
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`/app/${workspaceSlug}/projects/${project.id}/tasks/${task.id}`}
+                              className={cn("hover:text-accent transition-colors line-clamp-1", isDone && "line-through text-text-muted")}
+                            >
+                              {task.title}
+                            </Link>
+                            {subtaskCounts?.[task.id] && subtaskCounts[task.id]!.total > 0 && (
+                              <span className="flex items-center gap-0.5 text-xs text-text-subtle flex-shrink-0">
+                                <ListChecks className="w-3 h-3" />
+                                {subtaskCounts[task.id]!.completed}/{subtaskCounts[task.id]!.total}
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-2 sm:hidden">
                             <div className="flex items-center gap-1">
                               <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: status.color }} />

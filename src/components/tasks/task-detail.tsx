@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -16,8 +16,10 @@ import {
   Check,
   Clock,
   MessageCircle,
+  Plus,
+  ListChecks,
 } from "lucide-react";
-import { formatDate, getInitials, priorityLabel, spring } from "@/lib/utils";
+import { formatDate, getInitials, priorityLabel, spring, cn } from "@/lib/utils";
 import type { InferSelectModel } from "drizzle-orm";
 import type { tasks, taskStatuses, projects, profiles } from "@/db/schema";
 import TimeTracker from "@/components/time-tracking/time-tracker";
@@ -30,6 +32,11 @@ type Status = InferSelectModel<typeof taskStatuses>;
 type Project = InferSelectModel<typeof projects>;
 type Profile = InferSelectModel<typeof profiles>;
 type Member = { userId: string; role: string; profile: Profile | null };
+
+type Subtask = InferSelectModel<typeof tasks> & {
+  status: InferSelectModel<typeof taskStatuses> | null;
+  assignee: Pick<Profile, "id" | "fullName"> | null;
+};
 
 type ApiRecurrence = {
   id: string;
@@ -56,6 +63,230 @@ type Props = {
 };
 
 type MainTab = "detalle" | "comentarios" | "tiempo";
+
+function SubtasksPanel({
+  parentTaskId,
+  projectId,
+  statuses,
+  members,
+}: {
+  parentTaskId: string;
+  projectId: string;
+  statuses: Status[];
+  members: Member[];
+}) {
+  const [subtasks, setSubtasks] = useState<Subtask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newTitle, setNewTitle] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const doneStatus = statuses.find((s) => s.type === "done");
+  const defaultStatus = statuses.find((s) => s.type === "todo") ?? statuses[0];
+
+  const fetchSubtasks = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tasks?parentTaskId=${parentTaskId}`);
+      if (!res.ok) return;
+      const body = (await res.json()) as { tasks: Subtask[] };
+      setSubtasks(body.tasks);
+    } finally {
+      setLoading(false);
+    }
+  }, [parentTaskId]);
+
+  useEffect(() => { void fetchSubtasks(); }, [fetchSubtasks]);
+
+  const completedCount = subtasks.filter((t) => t.statusId === doneStatus?.id).length;
+  const totalCount = subtasks.length;
+  const progressPct = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  const handleAddSubtask = async () => {
+    if (!newTitle.trim()) { setAdding(false); return; }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTitle.trim(),
+          projectId,
+          parentTaskId,
+          statusId: defaultStatus?.id,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      const body = (await res.json()) as { task: InferSelectModel<typeof tasks> };
+      const created: Subtask = {
+        ...body.task,
+        status: defaultStatus ?? null,
+        assignee: null,
+      };
+      setSubtasks((prev) => [...prev, created]);
+      setNewTitle("");
+      setAdding(false);
+      toast.success("Subtarea creada");
+    } catch {
+      toast.error("Error al crear subtarea");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleSubtask = async (subtask: Subtask) => {
+    if (!doneStatus) { toast.error("No hay estado 'Hecho' en este proyecto"); return; }
+    const isDone = subtask.statusId === doneStatus.id;
+    const nextStatusId = isDone ? (defaultStatus?.id ?? subtask.statusId) : doneStatus.id;
+
+    setTogglingId(subtask.id);
+    setSubtasks((prev) => prev.map((t) => t.id === subtask.id ? { ...t, statusId: nextStatusId } : t));
+
+    try {
+      const res = await fetch(`/api/tasks/${subtask.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ statusId: nextStatusId }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setSubtasks((prev) => prev.map((t) => t.id === subtask.id ? { ...t, statusId: subtask.statusId } : t));
+      toast.error("Error al actualizar subtarea");
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  if (loading) {
+    return <div className="text-xs text-text-subtle py-2">Cargando subtareas...</div>;
+  }
+
+  return (
+    <div className="mt-6">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <ListChecks className="w-4 h-4 text-text-subtle" />
+          <span className="text-sm font-medium">Subtareas</span>
+          {totalCount > 0 && (
+            <span className="text-xs text-text-subtle">
+              {completedCount}/{totalCount}
+            </span>
+          )}
+        </div>
+        <button
+          onClick={() => setAdding(true)}
+          className="flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Agregar
+        </button>
+      </div>
+
+      {/* Progress bar */}
+      {totalCount > 0 && (
+        <div className="mb-3">
+          <div className="w-full h-1.5 bg-surface-2 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-success rounded-full transition-all duration-300"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <p className="text-xs text-text-subtle mt-1">{progressPct}% completado</p>
+        </div>
+      )}
+
+      {/* Subtask list */}
+      <div className="space-y-1">
+        {subtasks.map((subtask) => {
+          const isDone = subtask.statusId === doneStatus?.id;
+          const assignee = subtask.assignee ?? members.find((m) => m.userId === subtask.assigneeId)?.profile ?? null;
+          return (
+            <div
+              key={subtask.id}
+              className={cn(
+                "flex items-center gap-2 p-2 rounded-lg border border-transparent hover:border-border hover:bg-surface transition-all group",
+                isDone && "opacity-60"
+              )}
+            >
+              <button
+                onClick={() => toggleSubtask(subtask)}
+                disabled={togglingId === subtask.id || !doneStatus}
+                className={cn(
+                  "w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all",
+                  isDone
+                    ? "bg-success border-success text-white"
+                    : "border-border hover:border-success hover:bg-success/10",
+                  togglingId === subtask.id && "opacity-40 cursor-not-allowed"
+                )}
+              >
+                {isDone && <Check className="w-2.5 h-2.5" strokeWidth={3} />}
+              </button>
+              <span
+                className={cn(
+                  "flex-1 text-sm leading-snug",
+                  isDone && "line-through text-text-muted"
+                )}
+              >
+                {subtask.title}
+              </span>
+              {subtask.status && (
+                <div
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: subtask.status.color }}
+                  title={subtask.status.name}
+                />
+              )}
+              {assignee && (
+                <div
+                  className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center text-[10px] font-medium text-accent flex-shrink-0"
+                  title={assignee.fullName ?? ""}
+                >
+                  {getInitials(assignee.fullName)}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add subtask inline input */}
+      {adding && (
+        <div className="flex items-center gap-2 mt-2 p-2 rounded-lg border border-accent/30 bg-surface">
+          <div className="w-4 h-4 rounded-full border-2 border-border flex-shrink-0" />
+          <input
+            autoFocus
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleAddSubtask();
+              if (e.key === "Escape") { setNewTitle(""); setAdding(false); }
+            }}
+            placeholder="Título de la subtarea..."
+            disabled={saving}
+            className="flex-1 text-sm bg-transparent outline-none placeholder:text-text-subtle"
+          />
+          <button
+            onClick={() => void handleAddSubtask()}
+            disabled={saving || !newTitle.trim()}
+            className="text-xs px-2 py-0.5 bg-accent text-accent-fg rounded font-medium disabled:opacity-50"
+          >
+            {saving ? "..." : "Agregar"}
+          </button>
+          <button
+            onClick={() => { setNewTitle(""); setAdding(false); }}
+            className="text-xs text-text-muted hover:text-text"
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
+
+      {subtasks.length === 0 && !adding && (
+        <p className="text-xs text-text-subtle italic py-1">Sin subtareas aún.</p>
+      )}
+    </div>
+  );
+}
 
 export default function TaskDetail({ task: initialTask, project, statuses, members, currentUserId, workspaceSlug, initialRecurrence }: Props) {
   const [task, setTask] = useState(initialTask);
@@ -204,6 +435,14 @@ export default function TaskDetail({ task: initialTask, project, statuses, membe
                 Agrega una descripción para dar más contexto al equipo...
               </p>
             </div>
+
+            {/* Subtasks */}
+            <SubtasksPanel
+              parentTaskId={task.id}
+              projectId={project.id}
+              statuses={statuses}
+              members={members}
+            />
           </div>
 
           {/* Properties rail */}

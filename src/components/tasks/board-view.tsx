@@ -37,6 +37,8 @@ type Member = {
   profile: Profile | null;
 };
 
+type SubtaskCount = { total: number; completed: number };
+
 type Props = {
   project: Project;
   statuses: Status[];
@@ -44,6 +46,7 @@ type Props = {
   members: Member[];
   currentUserId: string;
   workspaceSlug: string;
+  subtaskCounts?: Record<string, SubtaskCount>;
 };
 
 export default function BoardView({
@@ -53,6 +56,7 @@ export default function BoardView({
   members,
   currentUserId,
   workspaceSlug,
+  subtaskCounts,
 }: Props) {
   const [mounted, setMounted] = useState(false);
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
@@ -282,6 +286,7 @@ export default function BoardView({
                     onAddTask={handleAddTask}
                     workspaceSlug={workspaceSlug}
                     projectId={project.id}
+                    subtaskCounts={subtaskCounts}
                   />
                 </SortableContext>
               );

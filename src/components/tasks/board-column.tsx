@@ -15,6 +15,8 @@ type Status = InferSelectModel<typeof taskStatuses>;
 type Profile = InferSelectModel<typeof profiles>;
 type Member = { userId: string; role: string; profile: Profile | null };
 
+type SubtaskCount = { total: number; completed: number };
+
 type Props = {
   status: Status;
   tasks: Task[];
@@ -22,6 +24,7 @@ type Props = {
   onAddTask: (statusId: string, title: string, assigneeId?: string | null) => void;
   workspaceSlug: string;
   projectId: string;
+  subtaskCounts?: Record<string, SubtaskCount>;
 };
 
 export default function BoardColumn({
@@ -31,6 +34,7 @@ export default function BoardColumn({
   onAddTask,
   workspaceSlug,
   projectId,
+  subtaskCounts,
 }: Props) {
   const [adding, setAdding] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -100,6 +104,7 @@ export default function BoardColumn({
                 members={members}
                 workspaceSlug={workspaceSlug}
                 projectId={projectId}
+                subtaskCount={subtaskCounts?.[task.id]}
               />
             </motion.div>
           ))}

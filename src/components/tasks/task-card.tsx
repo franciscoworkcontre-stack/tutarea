@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { cn, formatRelativeDate, getInitials } from "@/lib/utils";
 import { useNow } from "@/lib/hooks";
-import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar } from "lucide-react";
+import { AlertCircle, ArrowUp, ArrowDown, Minus, Calendar, ListChecks } from "lucide-react";
 import type { InferSelectModel } from "drizzle-orm";
 import type { tasks, profiles } from "@/db/schema";
 
@@ -14,12 +14,15 @@ type Task = InferSelectModel<typeof tasks>;
 type Profile = InferSelectModel<typeof profiles>;
 type Member = { userId: string; role: string; profile: Profile | null };
 
+type SubtaskCount = { total: number; completed: number };
+
 type Props = {
   task: Task;
   members: Member[];
   workspaceSlug: string;
   projectId: string;
   isDragging?: boolean;
+  subtaskCount?: SubtaskCount;
 };
 
 const PriorityIcon = ({ priority }: { priority: string }) => {
@@ -32,7 +35,7 @@ const PriorityIcon = ({ priority }: { priority: string }) => {
   }
 };
 
-export default function TaskCard({ task, members, workspaceSlug, projectId, isDragging }: Props) {
+export default function TaskCard({ task, members, workspaceSlug, projectId, isDragging, subtaskCount }: Props) {
   const {
     attributes, listeners, setNodeRef, transform, transition,
     isDragging: isSortableDragging,
@@ -104,16 +107,24 @@ export default function TaskCard({ task, members, workspaceSlug, projectId, isDr
             )}
           </div>
 
-          {assignee?.profile && (
-            <motion.div
-              className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent"
-              title={assignee.profile.fullName ?? ""}
-              whileHover={{ scale: 1.1 }}
-              transition={{ type: "spring", stiffness: 400, damping: 25 }}
-            >
-              {getInitials(assignee.profile.fullName)}
-            </motion.div>
-          )}
+          <div className="flex items-center gap-1.5">
+            {subtaskCount && subtaskCount.total > 0 && (
+              <div className="flex items-center gap-0.5 text-xs text-text-subtle">
+                <ListChecks className="w-3 h-3" />
+                <span>{subtaskCount.completed}/{subtaskCount.total}</span>
+              </div>
+            )}
+            {assignee?.profile && (
+              <motion.div
+                className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center text-xs font-medium text-accent"
+                title={assignee.profile.fullName ?? ""}
+                whileHover={{ scale: 1.1 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
+              >
+                {getInitials(assignee.profile.fullName)}
+              </motion.div>
+            )}
+          </div>
         </div>
       </div>
     </div>
