@@ -12,17 +12,22 @@ if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
 }
 
-// Wrap fetch with a 9-second timeout so DB calls fail fast instead of hanging
-// indefinitely (Node 24 keep-alive behaviour on Vercel can stall fetch forever).
+// Wrap fetch with a 9-second timeout. AbortSignal.timeout() doesn't always
+// propagate through undici (Node 24 on Vercel), so we use a manual
+// AbortController + setTimeout which reliably aborts the fetch.
 const fetchWithTimeout: typeof fetch = (input, init) => {
   const headers = new Headers(init?.headers);
   // Force connection close to avoid Node 24 keep-alive stalls on Vercel.
   headers.set("connection", "close");
-  return fetch(input, {
-    ...init,
-    headers,
-    signal: init?.signal ?? AbortSignal.timeout(9000),
-  });
+  if (init?.signal) {
+    // Caller supplied a signal; respect it and add connection:close only.
+    return fetch(input, { ...init, headers });
+  }
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(new Error("DB fetch timeout after 9s")), 9000);
+  return fetch(input, { ...init, headers, signal: ac.signal }).finally(() =>
+    clearTimeout(timer)
+  );
 };
 
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
