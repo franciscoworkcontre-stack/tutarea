@@ -12,8 +12,22 @@ if (!supabaseUrl || !serviceRoleKey) {
   throw new Error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local");
 }
 
+// Wrap fetch with a 9-second timeout so DB calls fail fast instead of hanging
+// indefinitely (Node 24 keep-alive behaviour on Vercel can stall fetch forever).
+const fetchWithTimeout: typeof fetch = (input, init) => {
+  const headers = new Headers(init?.headers);
+  // Force connection close to avoid Node 24 keep-alive stalls on Vercel.
+  headers.set("connection", "close");
+  return fetch(input, {
+    ...init,
+    headers,
+    signal: init?.signal ?? AbortSignal.timeout(9000),
+  });
+};
+
 const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
   auth: { persistSession: false },
+  global: { fetch: fetchWithTimeout },
 });
 
 export const db = drizzle(
