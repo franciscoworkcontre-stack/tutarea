@@ -62,17 +62,28 @@ function telegramPost(token: string, method: string, body: Record<string, unknow
 }
 
 export async function GET() {
+  console.log("[setup] start");
   const BOT_TOKEN = process.env["TELEGRAM_BOT_TOKEN"]?.trim();
   if (!BOT_TOKEN) {
     return NextResponse.json({ error: "TELEGRAM_BOT_TOKEN not set" }, { status: 500 });
   }
 
   const webhookUrl = `${APP_URL}/api/telegram/webhook`;
+  console.log("[setup] webhookUrl:", webhookUrl, "token_len:", BOT_TOKEN.length);
 
-  const [info, setResult] = await Promise.all([
-    telegramGet(BOT_TOKEN, "getWebhookInfo") as Promise<{ ok: boolean; result?: { url: string; last_error_message?: string; pending_update_count?: number } }>,
-    telegramPost(BOT_TOKEN, "setWebhook", { url: webhookUrl, drop_pending_updates: true }),
-  ]);
+  let info: { ok: boolean; result?: { url: string; last_error_message?: string; pending_update_count?: number } };
+  let setResult: unknown;
+  try {
+    [info, setResult] = await Promise.all([
+      telegramGet(BOT_TOKEN, "getWebhookInfo") as Promise<{ ok: boolean; result?: { url: string; last_error_message?: string; pending_update_count?: number } }>,
+      telegramPost(BOT_TOKEN, "setWebhook", { url: webhookUrl, drop_pending_updates: true }),
+    ]);
+    console.log("[setup] done");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[setup] error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 
   return NextResponse.json({
     previous_webhook: info.result?.url ?? "(none)",
