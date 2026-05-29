@@ -1,21 +1,48 @@
 import { NextResponse } from "next/server";
+import * as https from "node:https";
 
 export const dynamic = "force-dynamic";
 
-// Helper: fetch with manual AbortController timeout (AbortSignal.timeout doesn't
-// reliably abort undici fetches on Node 24 Vercel, but AbortController does).
-function fetchWithManualTimeout(
-  input: RequestInfo | URL,
-  init: RequestInit | undefined,
-  timeoutMs: number
-): Promise<Response> {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(new Error(`fetch timeout after ${timeoutMs}ms`)), timeoutMs);
-  return fetch(input, { ...init, signal: ac.signal }).finally(() => clearTimeout(timer));
+// Test node:https directly (bypasses undici/fetch which hangs on Vercel Node 24)
+function httpsGet(url: string, headers: Record<string, string>): Promise<{ status: number; body: string; ms: number }> {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = https.request(
+      { hostname: parsed.hostname, port: 443, path: parsed.pathname, method: "GET", headers: { ...headers, Connection: "close" }, timeout: 5000 },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => { body += c; });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: body.slice(0, 100), ms: Date.now() - start }));
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout after 5s")));
+    req.on("error", (e) => reject(Object.assign(e, { ms: Date.now() - start })));
+    req.end();
+  });
 }
 
-// Minimal network diagnostic endpoint: tests raw fetch to Supabase
-// without the Supabase JS client, to isolate the hang root cause.
+function httpsPost(url: string, headers: Record<string, string>, body: string): Promise<{ status: number; body: string; ms: number }> {
+  const start = Date.now();
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = https.request(
+      { hostname: parsed.hostname, port: 443, path: parsed.pathname, method: "POST", headers: { ...headers, "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body), Connection: "close" }, timeout: 5000 },
+      (res) => {
+        let data = "";
+        res.setEncoding("utf8");
+        res.on("data", (c) => { data += c; });
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, body: data.slice(0, 100), ms: Date.now() - start }));
+      }
+    );
+    req.on("timeout", () => req.destroy(new Error("timeout after 5s")));
+    req.on("error", (e) => reject(Object.assign(e, { ms: Date.now() - start })));
+    req.write(body);
+    req.end();
+  });
+}
+
 export async function GET() {
   const url = process.env["NEXT_PUBLIC_SUPABASE_URL"];
   const key = process.env["SUPABASE_SERVICE_ROLE_KEY"];
@@ -24,44 +51,26 @@ export async function GET() {
     return NextResponse.json({ error: "env vars missing", url: !!url, key: !!key }, { status: 500 });
   }
 
-  const results: Record<string, unknown> = {
-    env_url: url,
-    node_version: process.version,
-  };
+  const results: Record<string, unknown> = { node_version: process.version };
 
-  // Test 1: basic HTTPS fetch with 5s manual timeout
-  const t1 = Date.now();
+  // Test 1: GET /rest/v1/ with node:https
   try {
-    const res = await fetchWithManualTimeout(`${url}/rest/v1/`, {
-      headers: { apikey: key, Authorization: `Bearer ${key}` },
-    }, 5000);
-    results.rest_root_status = res.status;
-    results.rest_root_ms = Date.now() - t1;
+    const r = await httpsGet(`${url}/rest/v1/`, { apikey: key, Authorization: `Bearer ${key}` });
+    results.rest_root = { status: r.status, ms: r.ms };
   } catch (e) {
-    results.rest_root_error = e instanceof Error ? e.message : String(e);
-    results.rest_root_ms = Date.now() - t1;
+    results.rest_root = { error: e instanceof Error ? e.message : String(e) };
   }
 
-  // Test 2: RPC call with 5s manual timeout + Connection: close
-  const t2 = Date.now();
+  // Test 2: POST /rest/v1/rpc/drizzle_query with node:https
   try {
-    const rpcRes = await fetchWithManualTimeout(`${url}/rest/v1/rpc/drizzle_query`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        Connection: "close",
-      },
-      body: JSON.stringify({ query_sql: "SELECT 1 as n", query_params: [], query_method: "all" }),
-    }, 5000);
-    const body = await rpcRes.text();
-    results.rpc_status = rpcRes.status;
-    results.rpc_body = body.slice(0, 100);
-    results.rpc_ms = Date.now() - t2;
+    const r = await httpsPost(
+      `${url}/rest/v1/rpc/drizzle_query`,
+      { apikey: key, Authorization: `Bearer ${key}` },
+      JSON.stringify({ query_sql: "SELECT 1 as n", query_params: [], query_method: "all" })
+    );
+    results.rpc = { status: r.status, body: r.body, ms: r.ms };
   } catch (e) {
-    results.rpc_error = e instanceof Error ? e.message : String(e);
-    results.rpc_ms = Date.now() - t2;
+    results.rpc = { error: e instanceof Error ? e.message : String(e) };
   }
 
   return NextResponse.json(results);
