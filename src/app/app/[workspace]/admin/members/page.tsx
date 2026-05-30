@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { workspaces, workspaceMembers, profiles, invitations } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import MembersAdmin from "@/components/admin/members-admin";
 
 type Props = {
@@ -16,39 +16,31 @@ export default async function MembersPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.slug, slug),
-  });
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
 
   if (!workspace) redirect("/app");
 
-  const currentMember = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspace.id),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [currentMember] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspace.id),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!currentMember || (currentMember.role !== "owner" && currentMember.role !== "admin")) {
     redirect(`/app/${slug}`);
   }
 
-  const members = await db.query.workspaceMembers.findMany({
-    where: eq(workspaceMembers.workspaceId, workspace.id),
-  });
+  const members = await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspace.id));
 
-  const memberProfiles = await Promise.all(
-    members.map((m) =>
-      db.query.profiles.findFirst({ where: eq(profiles.id, m.userId) })
-    )
+  const memberUserIds = members.map(m => m.userId);
+  const memberProfileRows = memberUserIds.length > 0
+    ? await db.select().from(profiles).where(inArray(profiles.id, memberUserIds))
+    : [];
+  const memberProfiles = members.map(m => memberProfileRows.find(p => p.id === m.userId));
+
+  const pendingInvitations = await db.select().from(invitations).where(
+    eq(invitations.workspaceId, workspace.id)
+    // Only pending (not accepted)
   );
-
-  const pendingInvitations = await db.query.invitations.findMany({
-    where: and(
-      eq(invitations.workspaceId, workspace.id),
-      // Only pending (not accepted)
-    ),
-  });
 
   const membersWithProfiles = members.map((m, i) => ({
     ...m,

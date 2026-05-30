@@ -1,8 +1,8 @@
 import { redirect, notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { meetings, projects, workspaceMembers, profiles } from "@/db/schema";
-import { eq, and, asc } from "drizzle-orm";
+import { meetings, meetingAttendees, meetingAgendaItems, meetingAttachments, meetingNotes, meetingPreQuestions, projects, workspaceMembers, profiles } from "@/db/schema";
+import { eq, and, asc, inArray } from "drizzle-orm";
 import MeetingDetail from "@/components/meetings/meeting-detail";
 import type { MeetingWithDetails } from "@/lib/meetings/meeting-types";
 
@@ -28,43 +28,35 @@ export default async function MeetingDetailPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   if (!project) redirect(`/app/${workspaceSlug}/projects`);
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, project.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) redirect(`/app/${workspaceSlug}`);
 
-  const meeting = await db.query.meetings.findFirst({
-    where: and(eq(meetings.id, meetingId), eq(meetings.projectId, projectId)),
-    with: {
-      attendees: true,
-      agendaItems: { orderBy: (items) => [asc(items.orderIdx)] },
-      attachments: true,
-      notes: true,
-      preQuestions: { orderBy: (q) => [asc(q.orderIdx)] },
-    },
-  });
+  const [meetingRow] = await db.select().from(meetings).where(and(eq(meetings.id, meetingId), eq(meetings.projectId, projectId))).limit(1);
 
-  if (!meeting) notFound();
+  if (!meetingRow) notFound();
 
-  const workspaceUsers = await db.query.workspaceMembers.findMany({
-    where: eq(workspaceMembers.workspaceId, project.workspaceId),
-  });
+  const [attendees, agendaItemsRaw, attachments, notes, preQuestionsRaw] = await Promise.all([
+    db.select().from(meetingAttendees).where(eq(meetingAttendees.meetingId, meetingId)),
+    db.select().from(meetingAgendaItems).where(eq(meetingAgendaItems.meetingId, meetingId)).orderBy(asc(meetingAgendaItems.orderIdx)),
+    db.select().from(meetingAttachments).where(eq(meetingAttachments.meetingId, meetingId)),
+    db.select().from(meetingNotes).where(eq(meetingNotes.meetingId, meetingId)),
+    db.select().from(meetingPreQuestions).where(eq(meetingPreQuestions.meetingId, meetingId)).orderBy(asc(meetingPreQuestions.orderIdx)),
+  ]);
+  const meeting = { ...meetingRow, attendees, agendaItems: agendaItemsRaw, attachments, notes, preQuestions: preQuestionsRaw };
 
-  const userProfiles = await Promise.all(
-    workspaceUsers.map((m) =>
-      db.query.profiles.findFirst({ where: eq(profiles.id, m.userId) })
-    )
-  );
+  const workspaceUsers = await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, project.workspaceId));
+
+  const userIds = workspaceUsers.map(u => u.userId);
+  const profileRows = userIds.length > 0 ? await db.select().from(profiles).where(inArray(profiles.id, userIds)) : [];
+  const userProfiles = workspaceUsers.map(u => profileRows.find(p => p.id === u.userId));
 
   const members = workspaceUsers.map((m, i) => ({
     userId: m.userId,

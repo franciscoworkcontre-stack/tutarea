@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { tasks, taskStatuses, projects, workspaceMembers, profiles } from "@/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, inArray } from "drizzle-orm";
 import { generateKeyBetween } from "fractional-indexing";
 import { runAutomations } from "@/lib/automations/automation-engine";
 
@@ -17,26 +17,27 @@ export async function GET(request: Request) {
 
   // If parentTaskId is provided, fetch subtasks for that task
   if (parentTaskId) {
-    const subtasks = await db.query.tasks.findMany({
-      where: and(
-        eq(tasks.parentTaskId, parentTaskId),
-        isNull(tasks.archivedAt),
-      ),
-      with: {
-        status: true,
-      },
-      orderBy: [tasks.createdAt],
-    });
+    const subtasksRaw = await db.select().from(tasks).where(and(
+      eq(tasks.parentTaskId, parentTaskId),
+      isNull(tasks.archivedAt)
+    )).orderBy(tasks.createdAt);
+
+    const subtaskStatusIds = [...new Set(subtasksRaw.map((t) => t.statusId).filter(Boolean))] as string[];
+    const subtaskStatusRows = subtaskStatusIds.length > 0
+      ? await db.select().from(taskStatuses).where(inArray(taskStatuses.id, subtaskStatusIds))
+      : [];
+    const subtaskStatusMap = new Map(subtaskStatusRows.map((s) => [s.id, s]));
 
     // Fetch assignee profiles
-    const assigneeIds = [...new Set(subtasks.map((t) => t.assigneeId).filter(Boolean))] as string[];
-    const assigneeProfiles = assigneeIds.length > 0
-      ? await Promise.all(assigneeIds.map((id) => db.query.profiles.findFirst({ where: eq(profiles.id, id) })))
+    const assigneeIds = [...new Set(subtasksRaw.map((t) => t.assigneeId).filter(Boolean))] as string[];
+    const assigneeProfileRows = assigneeIds.length > 0
+      ? await db.select().from(profiles).where(inArray(profiles.id, assigneeIds))
       : [];
-    const profileMap = new Map(assigneeProfiles.filter(Boolean).map((p) => [p!.id, p]));
+    const profileMap = new Map(assigneeProfileRows.map((p) => [p.id, p]));
 
-    const subtasksWithAssignee = subtasks.map((t) => ({
+    const subtasksWithAssignee = subtasksRaw.map((t) => ({
       ...t,
+      status: t.statusId ? (subtaskStatusMap.get(t.statusId) ?? null) : null,
       assignee: t.assigneeId ? (profileMap.get(t.assigneeId) ?? null) : null,
     }));
 
@@ -45,17 +46,22 @@ export async function GET(request: Request) {
 
   if (!projectId) return NextResponse.json({ error: "projectId required" }, { status: 400 });
 
-  const projectTasks = await db.query.tasks.findMany({
-    where: and(
-      eq(tasks.projectId, projectId),
-      isNull(tasks.archivedAt),
-      isNull(tasks.parentTaskId)
-    ),
-    with: {
-      status: true,
-    },
-    orderBy: [tasks.position],
-  });
+  const projectTasksRaw = await db.select().from(tasks).where(and(
+    eq(tasks.projectId, projectId),
+    isNull(tasks.archivedAt),
+    isNull(tasks.parentTaskId)
+  )).orderBy(tasks.position);
+
+  const projectStatusIds = [...new Set(projectTasksRaw.map((t) => t.statusId).filter(Boolean))] as string[];
+  const projectStatusRows = projectStatusIds.length > 0
+    ? await db.select().from(taskStatuses).where(inArray(taskStatuses.id, projectStatusIds))
+    : [];
+  const projectStatusMap = new Map(projectStatusRows.map((s) => [s.id, s]));
+
+  const projectTasks = projectTasksRaw.map((t) => ({
+    ...t,
+    status: t.statusId ? (projectStatusMap.get(t.statusId) ?? null) : null,
+  }));
 
   return NextResponse.json({ tasks: projectTasks });
 }
@@ -81,36 +87,27 @@ export async function POST(request: Request) {
   }
 
   // Get project to check workspace membership and generate key
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, body.projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, body.projectId)).limit(1);
 
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
   // Check membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, project.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Get count for key generation
-  const existingCount = await db.query.tasks.findMany({
-    where: eq(tasks.projectId, body.projectId),
-  });
+  const existingCount = await db.select().from(tasks).where(eq(tasks.projectId, body.projectId));
 
   const taskKey = `${project.key}-${existingCount.length + 1}`;
 
   // Get default status if none provided
   let statusId = body.statusId;
   if (!statusId) {
-    const defaultStatus = await db.query.taskStatuses.findFirst({
-      where: eq(taskStatuses.projectId, body.projectId),
-      orderBy: [taskStatuses.position],
-    });
+    const [defaultStatus] = await db.select().from(taskStatuses).where(eq(taskStatuses.projectId, body.projectId)).orderBy(taskStatuses.position).limit(1);
     statusId = defaultStatus?.id;
   }
 

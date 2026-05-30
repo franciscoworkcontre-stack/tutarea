@@ -13,14 +13,10 @@ export default async function WorkspacePage({ params }: Props) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.slug, slug),
-  });
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
 
   const profile = user
-    ? await db.query.profiles.findFirst({
-        where: eq(profiles.id, user.id),
-      })
+    ? await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1).then(r => r[0] ?? null)
     : null;
 
   return (

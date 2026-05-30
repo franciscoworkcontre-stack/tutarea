@@ -2,19 +2,17 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { taskComments, tasks, workspaceMembers, profiles } from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 
 type Params = { params: Promise<{ taskId: string }> };
 
 async function verifyAccess(taskId: string, userId: string) {
-  const task = await db.query.tasks.findFirst({ where: eq(tasks.id, taskId) });
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   if (!task) return null;
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, task.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, task.workspaceId),
+    eq(workspaceMembers.userId, userId)
+  )).limit(1);
   if (!member) return null;
   return task;
 }
@@ -28,21 +26,16 @@ export async function GET(_req: Request, { params }: Params) {
   const task = await verifyAccess(taskId, user.id);
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const comments = await db.query.taskComments.findMany({
-    where: eq(taskComments.taskId, taskId),
-    orderBy: [desc(taskComments.createdAt)],
-  });
+  const comments = await db.select().from(taskComments).where(eq(taskComments.taskId, taskId)).orderBy(desc(taskComments.createdAt));
 
   const authorIds = [...new Set(comments.map((c) => c.authorId))];
-  const authorProfiles = await Promise.all(
-    authorIds.map((id) => db.query.profiles.findFirst({ where: eq(profiles.id, id) }))
-  );
-  const profileMap = Object.fromEntries(
-    authorIds.map((id, i) => [id, authorProfiles[i] ?? null])
-  );
+  const authorProfileRows = authorIds.length > 0
+    ? await db.select().from(profiles).where(inArray(profiles.id, authorIds))
+    : [];
+  const profileMap = Object.fromEntries(authorProfileRows.map((p) => [p.id, p]));
 
   return NextResponse.json({
-    comments: comments.map((c) => ({ ...c, author: profileMap[c.authorId] })),
+    comments: comments.map((c) => ({ ...c, author: profileMap[c.authorId] ?? null })),
   });
 }
 
@@ -65,7 +58,7 @@ export async function POST(req: Request, { params }: Params) {
     .values({ taskId, authorId: user.id, body: body.body.trim() })
     .returning();
 
-  const author = await db.query.profiles.findFirst({ where: eq(profiles.id, user.id) });
+  const [author] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
 
-  return NextResponse.json({ comment: { ...comment, author } }, { status: 201 });
+  return NextResponse.json({ comment: { ...comment, author: author ?? null } }, { status: 201 });
 }

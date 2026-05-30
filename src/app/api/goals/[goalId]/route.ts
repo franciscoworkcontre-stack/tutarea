@@ -14,21 +14,19 @@ export async function GET(_request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const goal = await db.query.goals.findFirst({
-    where: eq(goals.id, goalId),
-    with: { keyResults: true },
-  });
+  const [goalRow] = await db.select().from(goals).where(eq(goals.id, goalId)).limit(1);
 
-  if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!goalRow) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, goal.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, goalRow.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const goalKeyResults = await db.select().from(keyResults).where(eq(keyResults.goalId, goalId));
+  const goal = { ...goalRow, keyResults: goalKeyResults };
 
   return NextResponse.json({ goal });
 }
@@ -41,18 +39,14 @@ export async function PUT(request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const goal = await db.query.goals.findFirst({
-    where: eq(goals.id, goalId),
-  });
+  const [goal] = await db.select().from(goals).where(eq(goals.id, goalId)).limit(1);
 
   if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, goal.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, goal.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -95,18 +89,14 @@ export async function DELETE(_request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const goal = await db.query.goals.findFirst({
-    where: eq(goals.id, goalId),
-  });
+  const [goal] = await db.select().from(goals).where(eq(goals.id, goalId)).limit(1);
 
   if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, goal.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, goal.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

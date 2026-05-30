@@ -17,12 +17,10 @@ export async function POST(request: Request) {
     workspaceId: string;
   };
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, body.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, body.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member || (member.role !== "owner" && member.role !== "admin")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

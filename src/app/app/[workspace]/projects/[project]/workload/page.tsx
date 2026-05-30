@@ -9,7 +9,7 @@ import {
   tasks,
   taskStatuses,
 } from "@/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, inArray } from "drizzle-orm";
 import WorkloadView from "@/components/workload/workload-view";
 import type { WorkloadMember, WorkloadTask } from "@/app/api/projects/[projectId]/workload/route";
 
@@ -26,45 +26,35 @@ export default async function WorkloadPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   if (!project) redirect(`/app/${workspaceSlug}/projects`);
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, project.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) redirect(`/app/${workspaceSlug}`);
 
   // Get project members
-  const projectMemberRows = await db.query.projectMembers.findMany({
-    where: eq(projectMembers.projectId, projectId),
-  });
+  const projectMemberRows = await db.select().from(projectMembers).where(eq(projectMembers.projectId, projectId));
 
   // Get task statuses
-  const statusRows = await db.query.taskStatuses.findMany({
-    where: eq(taskStatuses.projectId, projectId),
-  });
+  const statusRows = await db.select().from(taskStatuses).where(eq(taskStatuses.projectId, projectId));
   const statusMap = new Map(statusRows.map((s) => [s.id, s.type]));
 
   // Get all active tasks for the project
-  const allProjectTasks = await db.query.tasks.findMany({
-    where: and(eq(tasks.projectId, projectId), isNull(tasks.archivedAt)),
-  });
+  const allProjectTasks = await db.select().from(tasks).where(and(eq(tasks.projectId, projectId), isNull(tasks.archivedAt)));
 
   const now = new Date();
 
   // Build initial member data (no date filter for SSR — default view)
-  const memberProfiles = await Promise.all(
-    projectMemberRows.map((pm) =>
-      db.query.profiles.findFirst({ where: eq(profiles.id, pm.userId) })
-    )
-  );
+  const memberUserIds = projectMemberRows.map((pm) => pm.userId);
+  const memberProfileRows = memberUserIds.length > 0
+    ? await db.select().from(profiles).where(inArray(profiles.id, memberUserIds))
+    : [];
+  const memberProfiles = projectMemberRows.map((pm) => memberProfileRows.find((p) => p.id === pm.userId));
 
   const membersData: WorkloadMember[] = projectMemberRows.map((pm, idx) => {
     const profile = memberProfiles[idx];

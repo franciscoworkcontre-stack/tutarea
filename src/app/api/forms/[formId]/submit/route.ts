@@ -9,9 +9,7 @@ type Params = { params: Promise<{ formId: string }> };
 export async function POST(req: Request, { params }: Params) {
   const { formId } = await params;
 
-  const form = await db.query.forms.findFirst({
-    where: eq(forms.id, formId),
-  });
+  const [form] = await db.select().from(forms).where(eq(forms.id, formId)).limit(1);
   if (!form) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!form.isActive) return NextResponse.json({ error: "This form is no longer active" }, { status: 403 });
 
@@ -98,19 +96,13 @@ export async function POST(req: Request, { params }: Params) {
   // Auto-create task if defaultStatusId is set
   if (form.defaultStatusId) {
     try {
-      const status = await db.query.taskStatuses.findFirst({
-        where: eq(taskStatuses.id, form.defaultStatusId),
-      });
+      const [status] = await db.select().from(taskStatuses).where(eq(taskStatuses.id, form.defaultStatusId)).limit(1);
 
       if (status) {
-        const project = await db.query.projects.findFirst({
-          where: eq(projects.id, form.projectId),
-        });
+        const [project] = await db.select().from(projects).where(eq(projects.id, form.projectId)).limit(1);
 
         if (project) {
-          const existingTasks = await db.query.tasks.findMany({
-            where: eq(tasks.projectId, form.projectId),
-          });
+          const existingTasks = await db.select().from(tasks).where(eq(tasks.projectId, form.projectId));
           const taskKey = `${project.key}-${existingTasks.length + 1}`;
 
           const insertedTasks = await db

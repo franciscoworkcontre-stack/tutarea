@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { sprints, sprintTasks, tasks, workspaceMembers, profiles } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { sprints, sprintTasks, tasks, taskStatuses, workspaceMembers, profiles } from "@/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 
 type Params = { params: Promise<{ sprintId: string }> };
 
@@ -14,57 +14,46 @@ export async function GET(_req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const sprint = await db.query.sprints.findFirst({
-    where: eq(sprints.id, sprintId),
-    with: {
-      sprintTasks: {
-        with: {
-          task: {
-            with: { status: true },
-          },
-        },
-      },
-    },
-  });
+  const [sprint] = await db.select().from(sprints).where(eq(sprints.id, sprintId)).limit(1);
 
   if (!sprint) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, sprint.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, sprint.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const sprintTaskRows = await db.select().from(sprintTasks).where(eq(sprintTasks.sprintId, sprintId));
+  const taskIds = sprintTaskRows.map((st) => st.taskId);
+  const taskRows = taskIds.length > 0 ? await db.select().from(tasks).where(inArray(tasks.id, taskIds)) : [];
+  const statusIds = [...new Set(taskRows.map((t) => t.statusId).filter(Boolean))] as string[];
+  const statusRows = statusIds.length > 0 ? await db.select().from(taskStatuses).where(inArray(taskStatuses.id, statusIds)) : [];
+  const statusMap = new Map(statusRows.map((s) => [s.id, s]));
+  const taskMap = new Map(taskRows.map((t) => [t.id, { ...t, status: t.statusId ? (statusMap.get(t.statusId) ?? null) : null }]));
 
   // Enrich with assignee profiles
   const assigneeIds = [
     ...new Set(
-      sprint.sprintTasks
-        .map((st) => st.task.assigneeId)
-        .filter((id): id is string => id !== null)
+      taskRows.map((t) => t.assigneeId).filter((id): id is string => id !== null)
     ),
   ];
 
-  const assigneeProfiles = await Promise.all(
-    assigneeIds.map((id) =>
-      db.query.profiles.findFirst({ where: eq(profiles.id, id) })
-    )
-  );
+  const assigneeProfileRows = assigneeIds.length > 0
+    ? await db.select().from(profiles).where(inArray(profiles.id, assigneeIds))
+    : [];
+  const profileMap = new Map(assigneeProfileRows.map((p) => [p.id, p]));
 
-  const profileMap = new Map(
-    assigneeIds.map((id, i) => [id, assigneeProfiles[i] ?? null])
-  );
-
-  const sprintTasksWithProfile = sprint.sprintTasks.map((st) => ({
-    ...st,
-    task: {
-      ...st.task,
-      assigneeProfile: st.task.assigneeId
-        ? (profileMap.get(st.task.assigneeId) ?? null)
-        : null,
-    },
-  }));
+  const sprintTasksWithProfile = sprintTaskRows.map((st) => {
+    const task = taskMap.get(st.taskId);
+    return {
+      ...st,
+      task: task ? {
+        ...task,
+        assigneeProfile: task.assigneeId ? (profileMap.get(task.assigneeId) ?? null) : null,
+      } : null,
+    };
+  });
 
   return NextResponse.json({
     sprint: { ...sprint, sprintTasks: sprintTasksWithProfile },
@@ -79,17 +68,13 @@ export async function PUT(req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const sprint = await db.query.sprints.findFirst({
-    where: eq(sprints.id, sprintId),
-  });
+  const [sprint] = await db.select().from(sprints).where(eq(sprints.id, sprintId)).limit(1);
   if (!sprint) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, sprint.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, sprint.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json()) as {
@@ -102,12 +87,10 @@ export async function PUT(req: Request, { params }: Params) {
 
   // If activating, ensure no other sprint is active
   if (body.status === "active") {
-    const activeSprint = await db.query.sprints.findFirst({
-      where: and(
-        eq(sprints.projectId, sprint.projectId),
-        eq(sprints.status, "active")
-      ),
-    });
+    const [activeSprint] = await db.select().from(sprints).where(and(
+      eq(sprints.projectId, sprint.projectId),
+      eq(sprints.status, "active")
+    )).limit(1);
     if (activeSprint && activeSprint.id !== sprintId) {
       return NextResponse.json(
         { error: "There is already an active sprint in this project" },
@@ -143,17 +126,13 @@ export async function DELETE(_req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const sprint = await db.query.sprints.findFirst({
-    where: eq(sprints.id, sprintId),
-  });
+  const [sprint] = await db.select().from(sprints).where(eq(sprints.id, sprintId)).limit(1);
   if (!sprint) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, sprint.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, sprint.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   if (sprint.status !== "planned") {

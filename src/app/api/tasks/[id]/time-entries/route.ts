@@ -16,17 +16,13 @@ export async function GET(
 
   const { id: taskId } = await params;
 
-  const task = await db.query.tasks.findFirst({
-    where: eq(tasks.id, taskId),
-  });
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, task.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, task.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const entries = await db
@@ -64,17 +60,13 @@ export async function POST(
 
   const { id: taskId } = await params;
 
-  const task = await db.query.tasks.findFirst({
-    where: eq(tasks.id, taskId),
-  });
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, task.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, task.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await request.json()) as {
@@ -87,12 +79,10 @@ export async function POST(
 
   // If starting a running timer, stop any existing running entry first
   if (body.isRunning) {
-    const running = await db.query.timeEntries.findFirst({
-      where: and(
-        eq(timeEntries.userId, user.id),
-        eq(timeEntries.isRunning, true)
-      ),
-    });
+    const [running] = await db.select().from(timeEntries).where(and(
+      eq(timeEntries.userId, user.id),
+      eq(timeEntries.isRunning, true)
+    )).limit(1);
     if (running) {
       const now = new Date();
       const startedAt = new Date(running.startedAt);

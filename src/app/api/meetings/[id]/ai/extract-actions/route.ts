@@ -17,28 +17,18 @@ export async function POST(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const [notes, agendaItems] = await Promise.all([
-    db.query.meetingNotes.findMany({
-      where: eq(meetingNotes.meetingId, id),
-      orderBy: [asc(meetingNotes.createdAt)],
-    }),
-    db.query.meetingAgendaItems.findMany({
-      where: eq(meetingAgendaItems.meetingId, id),
-      orderBy: [asc(meetingAgendaItems.orderIdx)],
-    }),
+    db.select().from(meetingNotes).where(eq(meetingNotes.meetingId, id)).orderBy(asc(meetingNotes.createdAt)),
+    db.select().from(meetingAgendaItems).where(eq(meetingAgendaItems.meetingId, id)).orderBy(asc(meetingAgendaItems.orderIdx)),
   ]);
 
   const existingActionItems = notes.filter((n) => n.noteType === "action_item");

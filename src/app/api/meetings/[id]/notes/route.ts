@@ -14,17 +14,13 @@ export async function GET(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { searchParams } = new URL(request.url);
@@ -35,10 +31,7 @@ export async function GET(
   if (agendaItemId) conditions.push(eq(meetingNotes.agendaItemId, agendaItemId));
   if (noteType) conditions.push(eq(meetingNotes.noteType, noteType));
 
-  const notes = await db.query.meetingNotes.findMany({
-    where: and(...conditions),
-    orderBy: [asc(meetingNotes.createdAt)],
-  });
+  const notes = await db.select().from(meetingNotes).where(and(...conditions)).orderBy(asc(meetingNotes.createdAt));
 
   return NextResponse.json({ notes });
 }
@@ -53,17 +46,13 @@ export async function POST(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await request.json()) as {

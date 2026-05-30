@@ -14,12 +14,10 @@ export async function PATCH(
 
   const { id: workspaceId, memberId } = await params;
 
-  const currentMember = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [currentMember] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!currentMember || (currentMember.role !== "owner" && currentMember.role !== "admin")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -27,9 +25,7 @@ export async function PATCH(
 
   const body = (await request.json()) as { role: string };
 
-  const targetMember = await db.query.workspaceMembers.findFirst({
-    where: eq(workspaceMembers.id, memberId),
-  });
+  const [targetMember] = await db.select().from(workspaceMembers).where(eq(workspaceMembers.id, memberId)).limit(1);
 
   if (!targetMember || targetMember.role === "owner") {
     return NextResponse.json({ error: "Cannot change owner role" }, { status: 400 });
@@ -67,20 +63,16 @@ export async function DELETE(
 
   const { id: workspaceId, memberId } = await params;
 
-  const currentMember = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [currentMember] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!currentMember || (currentMember.role !== "owner" && currentMember.role !== "admin")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const targetMember = await db.query.workspaceMembers.findFirst({
-    where: eq(workspaceMembers.id, memberId),
-  });
+  const [targetMember] = await db.select().from(workspaceMembers).where(eq(workspaceMembers.id, memberId)).limit(1);
 
   if (!targetMember || targetMember.role === "owner") {
     return NextResponse.json({ error: "Cannot remove owner" }, { status: 400 });

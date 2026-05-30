@@ -3,6 +3,16 @@ import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { meetings, meetingAttendees, meetingAgendaItems, workspaceMembers } from "@/db/schema";
 import { eq, and, asc } from "drizzle-orm";
+
+async function getMeetingAndMember(id: string, userId: string) {
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
+  if (!meeting) return { meeting: null, member: null };
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, userId)
+  )).limit(1);
+  return { meeting, member };
+}
 import { canTransition } from "@/lib/meetings/meeting-types";
 
 export async function GET(
@@ -15,28 +25,13 @@ export async function GET(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const { meeting, member } = await getMeetingAndMember(id, user.id);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  // Check workspace membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const [attendees, agendaItems] = await Promise.all([
-    db.query.meetingAttendees.findMany({
-      where: eq(meetingAttendees.meetingId, id),
-    }),
-    db.query.meetingAgendaItems.findMany({
-      where: eq(meetingAgendaItems.meetingId, id),
-      orderBy: [asc(meetingAgendaItems.orderIdx)],
-    }),
+    db.select().from(meetingAttendees).where(eq(meetingAttendees.meetingId, id)),
+    db.select().from(meetingAgendaItems).where(eq(meetingAgendaItems.meetingId, id)).orderBy(asc(meetingAgendaItems.orderIdx)),
   ]);
 
   return NextResponse.json({ meeting, attendees, agendaItems });
@@ -52,18 +47,8 @@ export async function PUT(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const { meeting, member } = await getMeetingAndMember(id, user.id);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  // Check workspace membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await request.json()) as Partial<{
@@ -119,18 +104,8 @@ export async function DELETE(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const { meeting, member } = await getMeetingAndMember(id, user.id);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  // Check workspace membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   await db.delete(meetings).where(eq(meetings.id, id));

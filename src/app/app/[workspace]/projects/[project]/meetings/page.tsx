@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { meetings, projects, workspaceMembers } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { meetings, meetingAttendees, meetingAgendaItems, meetingAttachments, meetingNotes, meetingPreQuestions, projects, workspaceMembers } from "@/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 import MeetingList from "@/components/meetings/meeting-list";
 import type { MeetingWithDetails } from "@/lib/meetings/meeting-types";
 
@@ -20,31 +20,36 @@ export default async function MeetingsPage({ params }: Props) {
   if (!user) redirect("/login");
 
   try {
-    const project = await db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
-    });
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
     if (!project) redirect(`/app/${workspaceSlug}/projects`);
 
-    const member = await db.query.workspaceMembers.findFirst({
-      where: and(
-        eq(workspaceMembers.workspaceId, project.workspaceId),
-        eq(workspaceMembers.userId, user.id)
-      ),
-    });
+    const [member] = await db.select().from(workspaceMembers).where(and(
+      eq(workspaceMembers.workspaceId, project.workspaceId),
+      eq(workspaceMembers.userId, user.id)
+    )).limit(1);
 
     if (!member) redirect(`/app/${workspaceSlug}`);
 
-    const projectMeetings = await db.query.meetings.findMany({
-      where: eq(meetings.projectId, projectId),
-      with: {
-        attendees: true,
-        agendaItems: true,
-        attachments: true,
-        notes: true,
-        preQuestions: true,
-      },
-    });
+    const meetingRows = await db.select().from(meetings).where(eq(meetings.projectId, projectId));
+    const meetingIds = meetingRows.map(m => m.id);
+    const [attendees, agendaItems, attachments, notes, preQuestions] = meetingIds.length > 0
+      ? await Promise.all([
+          db.select().from(meetingAttendees).where(inArray(meetingAttendees.meetingId, meetingIds)),
+          db.select().from(meetingAgendaItems).where(inArray(meetingAgendaItems.meetingId, meetingIds)),
+          db.select().from(meetingAttachments).where(inArray(meetingAttachments.meetingId, meetingIds)),
+          db.select().from(meetingNotes).where(inArray(meetingNotes.meetingId, meetingIds)),
+          db.select().from(meetingPreQuestions).where(inArray(meetingPreQuestions.meetingId, meetingIds)),
+        ])
+      : [[], [], [], [], []];
+    const projectMeetings = meetingRows.map(m => ({
+      ...m,
+      attendees: attendees.filter(a => a.meetingId === m.id),
+      agendaItems: agendaItems.filter(a => a.meetingId === m.id),
+      attachments: attachments.filter(a => a.meetingId === m.id),
+      notes: notes.filter(n => n.meetingId === m.id),
+      preQuestions: preQuestions.filter(q => q.meetingId === m.id),
+    }));
 
     const canCreate = member.role !== "viewer";
 

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { workspaces, workspaceMembers, projects, taskStatuses, profiles } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { generateProjectKey } from "@/lib/utils";
 import { generateKeyBetween } from "fractional-indexing";
 
@@ -24,9 +24,7 @@ export async function POST(request: Request) {
   }
 
   // Check slug uniqueness
-  const existing = await db.query.workspaces.findFirst({
-    where: eq(workspaces.slug, body.workspaceSlug),
-  });
+  const [existing] = await db.select().from(workspaces).where(eq(workspaces.slug, body.workspaceSlug)).limit(1);
 
   if (existing) {
     return NextResponse.json(
@@ -120,16 +118,16 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const memberWorkspaces = await db.query.workspaceMembers.findMany({
-    where: eq(workspaceMembers.userId, user.id),
-    with: {
-      workspace: true,
-    },
-  });
+  const memberWorkspaces = await db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, user.id));
+  const workspaceIds = memberWorkspaces.map((m) => m.workspaceId);
+  const workspaceRows = workspaceIds.length > 0
+    ? await db.select().from(workspaces).where(inArray(workspaces.id, workspaceIds))
+    : [];
+  const workspaceMap = new Map(workspaceRows.map((w) => [w.id, w]));
 
   return NextResponse.json({
     workspaces: memberWorkspaces.map((m) => ({
-      ...m.workspace,
+      ...workspaceMap.get(m.workspaceId),
       role: m.role,
     })),
   });

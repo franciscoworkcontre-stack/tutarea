@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { sprints, sprintTasks, tasks, workspaceMembers, profiles } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { sprints, sprintTasks, tasks, taskStatuses, workspaceMembers, profiles } from "@/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 
 type Params = { params: Promise<{ sprintId: string }> };
 
@@ -14,52 +14,41 @@ export async function GET(_req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const sprint = await db.query.sprints.findFirst({
-    where: eq(sprints.id, sprintId),
-  });
+  const [sprint] = await db.select().from(sprints).where(eq(sprints.id, sprintId)).limit(1);
   if (!sprint) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, sprint.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, sprint.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const rows = await db.query.sprintTasks.findMany({
-    where: eq(sprintTasks.sprintId, sprintId),
-    with: {
-      task: { with: { status: true } },
-    },
-  });
+  const rows = await db.select().from(sprintTasks).where(eq(sprintTasks.sprintId, sprintId));
+  const taskIds = rows.map((r) => r.taskId);
+  const taskRows = taskIds.length > 0 ? await db.select().from(tasks).where(inArray(tasks.id, taskIds)) : [];
+  const statusIds = [...new Set(taskRows.map((t) => t.statusId).filter(Boolean))] as string[];
+  const statusRows = statusIds.length > 0 ? await db.select().from(taskStatuses).where(inArray(taskStatuses.id, statusIds)) : [];
+  const statusMap = new Map(statusRows.map((s) => [s.id, s]));
+  const taskMap = new Map(taskRows.map((t) => [t.id, { ...t, status: t.statusId ? (statusMap.get(t.statusId) ?? null) : null }]));
 
   const assigneeIds = [
-    ...new Set(
-      rows
-        .map((r) => r.task.assigneeId)
-        .filter((id): id is string => id !== null)
-    ),
+    ...new Set(taskRows.map((t) => t.assigneeId).filter((id): id is string => id !== null)),
   ];
+  const profileList = assigneeIds.length > 0
+    ? await db.select().from(profiles).where(inArray(profiles.id, assigneeIds))
+    : [];
+  const profileMap = new Map(profileList.map((p) => [p.id, p]));
 
-  const profileList = await Promise.all(
-    assigneeIds.map((id) =>
-      db.query.profiles.findFirst({ where: eq(profiles.id, id) })
-    )
-  );
-  const profileMap = new Map(
-    assigneeIds.map((id, i) => [id, profileList[i] ?? null])
-  );
-
-  const enriched = rows.map((r) => ({
-    ...r,
-    task: {
-      ...r.task,
-      assigneeProfile: r.task.assigneeId
-        ? (profileMap.get(r.task.assigneeId) ?? null)
-        : null,
-    },
-  }));
+  const enriched = rows.map((r) => {
+    const task = taskMap.get(r.taskId);
+    return {
+      ...r,
+      task: task ? {
+        ...task,
+        assigneeProfile: task.assigneeId ? (profileMap.get(task.assigneeId) ?? null) : null,
+      } : null,
+    };
+  });
 
   return NextResponse.json({ tasks: enriched });
 }
@@ -72,17 +61,13 @@ export async function POST(req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const sprint = await db.query.sprints.findFirst({
-    where: eq(sprints.id, sprintId),
-  });
+  const [sprint] = await db.select().from(sprints).where(eq(sprints.id, sprintId)).limit(1);
   if (!sprint) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, sprint.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, sprint.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json()) as {
@@ -95,12 +80,10 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   // Verify task belongs to same project
-  const task = await db.query.tasks.findFirst({
-    where: and(
-      eq(tasks.id, body.taskId),
-      eq(tasks.projectId, sprint.projectId)
-    ),
-  });
+  const [task] = await db.select().from(tasks).where(and(
+    eq(tasks.id, body.taskId),
+    eq(tasks.projectId, sprint.projectId)
+  )).limit(1);
   if (!task) {
     return NextResponse.json(
       { error: "Task not found in this project" },
@@ -130,17 +113,13 @@ export async function DELETE(req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const sprint = await db.query.sprints.findFirst({
-    where: eq(sprints.id, sprintId),
-  });
+  const [sprint] = await db.select().from(sprints).where(eq(sprints.id, sprintId)).limit(1);
   if (!sprint) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, sprint.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, sprint.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await req.json()) as { taskId: string };

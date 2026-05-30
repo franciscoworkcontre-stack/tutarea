@@ -11,9 +11,7 @@ type Props = {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const form = await db.query.forms.findFirst({
-    where: eq(forms.slug, slug),
-  });
+  const [form] = await db.select().from(forms).where(eq(forms.slug, slug)).limit(1);
 
   if (!form) return { title: "Formulario no encontrado" };
 
@@ -26,9 +24,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function PublicFormPage({ params }: Props) {
   const { slug } = await params;
 
-  const form = await db.query.forms.findFirst({
-    where: eq(forms.slug, slug),
-  });
+  const [form] = await db.select().from(forms).where(eq(forms.slug, slug)).limit(1);
 
   if (!form) notFound();
 

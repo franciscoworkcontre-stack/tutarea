@@ -15,17 +15,13 @@ export async function POST(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await request.json()) as { noteIds: string[] };
@@ -36,12 +32,10 @@ export async function POST(
   }
 
   // Get all requested notes that are action_items without a materialized task
-  const notes = await db.query.meetingNotes.findMany({
-    where: and(
-      eq(meetingNotes.meetingId, id),
-      inArray(meetingNotes.id, noteIds)
-    ),
-  });
+  const notes = await db.select().from(meetingNotes).where(and(
+    eq(meetingNotes.meetingId, id),
+    inArray(meetingNotes.id, noteIds)
+  ));
 
   const notesToMaterialize = notes.filter(
     (n) => n.noteType === "action_item" && !n.materializedTaskId
@@ -51,17 +45,13 @@ export async function POST(
     return NextResponse.json({ materialized: 0, tasks: [] });
   }
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, meeting.projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, meeting.projectId)).limit(1);
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const todoStatus = await db.query.taskStatuses.findFirst({
-    where: and(
-      eq(taskStatuses.projectId, meeting.projectId),
-      eq(taskStatuses.type, "todo")
-    ),
-  });
+  const [todoStatus] = await db.select().from(taskStatuses).where(and(
+    eq(taskStatuses.projectId, meeting.projectId),
+    eq(taskStatuses.type, "todo")
+  )).limit(1);
 
   const countResult = await db
     .select({ value: count() })

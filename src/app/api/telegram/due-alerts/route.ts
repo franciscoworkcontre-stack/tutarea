@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { tasks, taskStatuses, profiles, workspaceMembers } from "@/db/schema";
-import { and, isNull, lte, gte, isNotNull } from "drizzle-orm";
+import { and, isNull, lte, gte, isNotNull, inArray } from "drizzle-orm";
 import { sendTelegramMessage } from "@/lib/telegram";
 
 const MONTHS_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -21,22 +21,20 @@ export async function GET(request: Request) {
   const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
   // Fetch all task statuses to know which are "done"
-  const allStatuses = await db.query.taskStatuses.findMany();
+  const allStatuses = await db.select().from(taskStatuses);
   const doneStatusIds = new Set(allStatuses.filter((s) => s.type === "done").map((s) => s.id));
+  const statusMap = new Map(allStatuses.map((s) => [s.id, s]));
 
   // Find tasks due within next 24 hours, not archived, with an assignee
-  const upcomingTasks = await db.query.tasks.findMany({
-    where: and(
-      isNull(tasks.archivedAt),
-      isNotNull(tasks.assigneeId),
-      isNotNull(tasks.dueDate),
-      gte(tasks.dueDate, now),
-      lte(tasks.dueDate, in24h),
-    ),
-    with: {
-      status: true,
-    },
-  });
+  const upcomingTasksRaw = await db.select().from(tasks).where(and(
+    isNull(tasks.archivedAt),
+    isNotNull(tasks.assigneeId),
+    isNotNull(tasks.dueDate),
+    gte(tasks.dueDate, now),
+    lte(tasks.dueDate, in24h),
+  ));
+
+  const upcomingTasks = upcomingTasksRaw.map((t) => ({ ...t, status: t.statusId ? statusMap.get(t.statusId) ?? null : null }));
 
   // Filter out already-done tasks
   const pendingTasks = upcomingTasks.filter(
@@ -56,13 +54,16 @@ export async function GET(request: Request) {
     tasksByAssignee.set(task.assigneeId, existing);
   }
 
+  // Batch fetch profiles for all assignees
+  const allAssigneeIds = Array.from(tasksByAssignee.keys());
+  const profileRows = allAssigneeIds.length > 0 ? await db.select().from(profiles).where(inArray(profiles.id, allAssigneeIds)) : [];
+  const profilesMap = new Map(profileRows.map((p) => [p.id, p]));
+
   let sentCount = 0;
 
   for (const [assigneeId, assigneeTasks] of tasksByAssignee) {
     // Get the user's profile to find their Telegram chat ID
-    const profile = await db.query.profiles.findFirst({
-      where: (profiles, { eq }) => eq(profiles.id, assigneeId),
-    });
+    const profile = profilesMap.get(assigneeId);
 
     if (!profile?.telegramChatId) continue;
 

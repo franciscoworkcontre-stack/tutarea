@@ -5,17 +5,13 @@ import { projects, workspaceMembers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 
 async function verifyAccess(projectId: string, userId: string, requireAdmin = false) {
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!project) return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, project.workspaceId),
+    eq(workspaceMembers.userId, userId)
+  )).limit(1);
   if (!member) return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   if (requireAdmin && member.role !== "owner" && member.role !== "admin") {
     return { error: NextResponse.json({ error: "Forbidden — admin required" }, { status: 403 }) };

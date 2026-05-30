@@ -14,25 +14,19 @@ export async function PATCH(
 
   const { id, attendeeId } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const attendee = await db.query.meetingAttendees.findFirst({
-    where: and(
-      eq(meetingAttendees.id, attendeeId),
-      eq(meetingAttendees.meetingId, id)
-    ),
-  });
+  const [attendee] = await db.select().from(meetingAttendees).where(and(
+    eq(meetingAttendees.id, attendeeId),
+    eq(meetingAttendees.meetingId, id)
+  )).limit(1);
   if (!attendee) return NextResponse.json({ error: "Attendee not found" }, { status: 404 });
 
   // Only the attendee themselves can update their pre-read completion

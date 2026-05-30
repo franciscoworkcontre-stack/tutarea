@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { sprints, tasks, projects, workspaceMembers } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { sprints, sprintTasks, tasks, taskStatuses, projects, workspaceMembers } from "@/db/schema";
+import { eq, and, inArray, desc } from "drizzle-orm";
 import SprintList, { type SprintWithStats } from "@/components/sprints/sprint-list";
 
 type Props = {
@@ -18,26 +18,26 @@ export default async function SprintsPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   if (!project) redirect(`/app/${workspaceSlug}/projects`);
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, project.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) redirect(`/app/${workspaceSlug}`);
 
-  const projectSprints = await db.query.sprints.findMany({
-    where: eq(sprints.projectId, projectId),
-    orderBy: (s, { desc }) => [desc(s.createdAt)],
-    with: { sprintTasks: true },
-  });
+  const projectSprintsRaw = await db.select().from(sprints).where(eq(sprints.projectId, projectId)).orderBy(desc(sprints.createdAt));
+  const sprintIds = projectSprintsRaw.map(s => s.id);
+  const allSprintTasks = sprintIds.length > 0
+    ? await db.select().from(sprintTasks).where(inArray(sprintTasks.sprintId, sprintIds))
+    : [];
+  const projectSprints = projectSprintsRaw.map(s => ({
+    ...s,
+    sprintTasks: allSprintTasks.filter(st => st.sprintId === s.id),
+  }));
 
   // Build stats per sprint and serialize dates to strings
   const sprintsRaw = await Promise.all(
@@ -46,13 +46,15 @@ export default async function SprintsPage({ params }: Props) {
       let completedCount = 0;
 
       if (taskIds.length > 0) {
-        const taskRows = await db.query.tasks.findMany({
-          where: eq(tasks.projectId, projectId),
-          with: { status: true },
-        });
+        const taskRows = await db.select().from(tasks).where(eq(tasks.projectId, projectId));
+        const statusIds = [...new Set(taskRows.map(t => t.statusId).filter(Boolean))] as string[];
+        const statusRows = statusIds.length > 0
+          ? await db.select().from(taskStatuses).where(inArray(taskStatuses.id, statusIds))
+          : [];
+        const statusMap = new Map(statusRows.map(s => [s.id, s]));
         const sprintTaskSet = new Set(taskIds);
         completedCount = taskRows.filter(
-          (t) => sprintTaskSet.has(t.id) && t.status?.type === "done"
+          (t) => sprintTaskSet.has(t.id) && t.statusId && statusMap.get(t.statusId)?.type === "done"
         ).length;
       }
 

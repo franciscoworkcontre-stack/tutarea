@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { workspaceMembers, profiles } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 
 export async function GET(
   _request: Request,
@@ -14,26 +14,23 @@ export async function GET(
 
   const { id: workspaceId } = await params;
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const members = await db.query.workspaceMembers.findMany({
-    where: eq(workspaceMembers.workspaceId, workspaceId),
-  });
+  const members = await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspaceId));
+  const memberUserIds = members.map((m) => m.userId);
+  const profileRows = memberUserIds.length > 0
+    ? await db.select().from(profiles).where(inArray(profiles.id, memberUserIds))
+    : [];
 
-  const withProfiles = await Promise.all(
-    members.map(async (m) => {
-      const profile = await db.query.profiles.findFirst({
-        where: eq(profiles.id, m.userId),
-      });
-      return { userId: m.userId, role: m.role, profile: profile ?? null };
-    })
-  );
+  const withProfiles = members.map((m) => ({
+    userId: m.userId,
+    role: m.role,
+    profile: profileRows.find((p) => p.id === m.userId) ?? null,
+  }));
 
   return NextResponse.json({ members: withProfiles });
 }

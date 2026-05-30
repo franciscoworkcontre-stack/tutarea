@@ -43,9 +43,7 @@ export async function POST(request: Request) {
   const { chatId } = payload;
 
   // Check if this chat_id is already linked to another account
-  const existing = await db.query.profiles.findFirst({
-    where: eq(profiles.telegramChatId, chatId.toString()),
-  });
+  const [existing] = await db.select().from(profiles).where(eq(profiles.telegramChatId, chatId.toString())).limit(1);
   if (existing && existing.id !== user.id) {
     return NextResponse.json(
       { error: "Este chat de Telegram ya está vinculado a otra cuenta." },
@@ -64,9 +62,7 @@ export async function POST(request: Request) {
     })
     .where(eq(profiles.id, user.id));
 
-  const profile = await db.query.profiles.findFirst({
-    where: eq(profiles.id, user.id),
-  });
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
 
   await notifyTelegram(chatId, profile?.fullName ?? user.email ?? "usuario");
 

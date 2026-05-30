@@ -14,33 +14,27 @@ export async function POST(
 
   const { token } = await params;
 
-  const invitation = await db.query.invitations.findFirst({
-    where: and(
-      eq(invitations.token, token),
-      isNull(invitations.acceptedAt),
-      gt(invitations.expiresAt, new Date())
-    ),
-  });
+  const [invitation] = await db.select().from(invitations).where(and(
+    eq(invitations.token, token),
+    isNull(invitations.acceptedAt),
+    gt(invitations.expiresAt, new Date())
+  )).limit(1);
 
   if (!invitation) {
     return NextResponse.json({ error: "Invalid or expired invitation" }, { status: 400 });
   }
 
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.id, invitation.workspaceId),
-  });
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, invitation.workspaceId)).limit(1);
 
   if (!workspace) {
     return NextResponse.json({ error: "Workspace not found" }, { status: 404 });
   }
 
   // Check not already a member
-  const existing = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, invitation.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [existing] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, invitation.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!existing) {
     await db.insert(workspaceMembers).values({

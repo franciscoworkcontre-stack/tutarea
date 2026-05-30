@@ -14,32 +14,24 @@ export async function POST(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Get current attendees to avoid duplicates
-  const currentAttendees = await db.query.meetingAttendees.findMany({
-    where: eq(meetingAttendees.meetingId, id),
-  });
+  const currentAttendees = await db.select().from(meetingAttendees).where(eq(meetingAttendees.meetingId, id));
   const currentAttendeeUserIds = new Set(currentAttendees.map((a) => a.userId));
 
   // Get tasks in the project that have assignees
-  const projectTasks = await db.query.tasks.findMany({
-    where: and(
-      eq(tasks.projectId, meeting.projectId),
-      isNotNull(tasks.assigneeId)
-    ),
-  });
+  const projectTasks = await db.select().from(tasks).where(and(
+    eq(tasks.projectId, meeting.projectId),
+    isNotNull(tasks.assigneeId)
+  ));
 
   // Count tasks per assignee for relevance scoring
   const assigneeCounts = new Map<string, number>();
@@ -50,13 +42,10 @@ export async function POST(
   }
 
   // Also consider agenda item owners if any
-  const agendaItems = await db.query.meetingAgendaItems.findMany({
-    where: and(
-      eq(meetingAgendaItems.meetingId, id),
-      isNotNull(meetingAgendaItems.ownerId)
-    ),
-    orderBy: [asc(meetingAgendaItems.orderIdx)],
-  });
+  const agendaItems = await db.select().from(meetingAgendaItems).where(and(
+    eq(meetingAgendaItems.meetingId, id),
+    isNotNull(meetingAgendaItems.ownerId)
+  )).orderBy(asc(meetingAgendaItems.orderIdx));
 
   // Add agenda owners to suggestion pool with higher weight
   const agendaOwnerIds = new Set(agendaItems.map((a) => a.ownerId).filter(Boolean) as string[]);

@@ -17,18 +17,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "workspaceId required" }, { status: 400 });
 
   // Check membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  let rows = await db.query.dashboards.findMany({
-    where: eq(dashboards.workspaceId, workspaceId),
-    orderBy: [dashboards.createdAt],
-  });
+  let rows = await db.select().from(dashboards).where(eq(dashboards.workspaceId, workspaceId)).orderBy(dashboards.createdAt);
 
   // Auto-create default if none exist
   if (rows.length === 0) {
@@ -64,12 +59,10 @@ export async function POST(request: Request) {
   if (!body.workspaceId || !body.name)
     return NextResponse.json({ error: "workspaceId and name required" }, { status: 400 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, body.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, body.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const inserted = await db

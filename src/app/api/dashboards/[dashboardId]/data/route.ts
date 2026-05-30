@@ -8,7 +8,7 @@ import {
   profiles,
   workspaceMembers,
 } from "@/db/schema";
-import { eq, and, desc, count, sql, lt, isNotNull, isNull, asc } from "drizzle-orm";
+import { eq, and, desc, count, sql, lt, isNotNull, isNull, asc, inArray } from "drizzle-orm";
 
 type Params = { params: Promise<{ dashboardId: string }> };
 
@@ -20,17 +20,13 @@ export async function GET(request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const dashboard = await db.query.dashboards.findFirst({
-    where: eq(dashboards.id, dashboardId),
-  });
+  const [dashboard] = await db.select().from(dashboards).where(eq(dashboards.id, dashboardId)).limit(1);
   if (!dashboard) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, dashboard.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, dashboard.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { searchParams } = new URL(request.url);
@@ -78,21 +74,18 @@ export async function GET(request: Request, { params }: Params) {
       .where(and(baseConditions, isNotNull(tasks.assigneeId)))
       .groupBy(tasks.assigneeId);
 
-    const enriched = await Promise.all(
-      rows.map(async (r) => {
-        const profile = r.assigneeId
-          ? await db.query.profiles.findFirst({
-              where: eq(profiles.id, r.assigneeId),
-            })
-          : null;
-        return {
-          userId: r.assigneeId ?? "",
-          fullName: profile?.fullName ?? "Sin asignar",
-          avatarUrl: profile?.avatarUrl ?? null,
-          count: Number(r.count),
-        };
-      })
-    );
+    const assigneeIds = rows.map((r) => r.assigneeId).filter(Boolean) as string[];
+    const profileRows = assigneeIds.length > 0 ? await db.select().from(profiles).where(inArray(profiles.id, assigneeIds)) : [];
+    const profileMap = new Map(profileRows.map((p) => [p.id, p]));
+    const enriched = rows.map((r) => {
+      const profile = r.assigneeId ? profileMap.get(r.assigneeId) : null;
+      return {
+        userId: r.assigneeId ?? "",
+        fullName: profile?.fullName ?? "Sin asignar",
+        avatarUrl: profile?.avatarUrl ?? null,
+        count: Number(r.count),
+      };
+    });
     return NextResponse.json({ data: enriched });
   }
 
@@ -143,24 +136,21 @@ export async function GET(request: Request, { params }: Params) {
       (r) => r.statusType !== "done" && r.statusType !== "cancelled"
     );
 
-    const enriched = await Promise.all(
-      filtered.map(async (r) => {
-        const profile = r.assigneeId
-          ? await db.query.profiles.findFirst({
-              where: eq(profiles.id, r.assigneeId),
-            })
-          : null;
-        return {
-          id: r.id,
-          title: r.title,
-          dueDate: r.dueDate,
-          priority: r.priority,
-          assignee: profile
-            ? { id: profile.id, fullName: profile.fullName, avatarUrl: profile.avatarUrl }
-            : null,
-        };
-      })
-    );
+    const filteredAssigneeIds = filtered.map((r) => r.assigneeId).filter(Boolean) as string[];
+    const filteredProfileRows = filteredAssigneeIds.length > 0 ? await db.select().from(profiles).where(inArray(profiles.id, filteredAssigneeIds)) : [];
+    const filteredProfileMap = new Map(filteredProfileRows.map((p) => [p.id, p]));
+    const enriched = filtered.map((r) => {
+      const profile = r.assigneeId ? filteredProfileMap.get(r.assigneeId) : null;
+      return {
+        id: r.id,
+        title: r.title,
+        dueDate: r.dueDate,
+        priority: r.priority,
+        assignee: profile
+          ? { id: profile.id, fullName: profile.fullName, avatarUrl: profile.avatarUrl }
+          : null,
+      };
+    });
     return NextResponse.json({ data: enriched });
   }
 
@@ -201,23 +191,20 @@ export async function GET(request: Request, { params }: Params) {
       .orderBy(desc(tasks.updatedAt))
       .limit(10);
 
-    const enriched = await Promise.all(
-      rows.map(async (r) => {
-        const profile = r.assigneeId
-          ? await db.query.profiles.findFirst({
-              where: eq(profiles.id, r.assigneeId),
-            })
-          : null;
-        return {
-          id: r.id,
-          title: r.title,
-          completedAt: r.updatedAt,
-          assignee: profile
-            ? { id: profile.id, fullName: profile.fullName, avatarUrl: profile.avatarUrl }
-            : null,
-        };
-      })
-    );
+    const recentAssigneeIds = rows.map((r) => r.assigneeId).filter(Boolean) as string[];
+    const recentProfileRows = recentAssigneeIds.length > 0 ? await db.select().from(profiles).where(inArray(profiles.id, recentAssigneeIds)) : [];
+    const recentProfileMap = new Map(recentProfileRows.map((p) => [p.id, p]));
+    const enriched = rows.map((r) => {
+      const profile = r.assigneeId ? recentProfileMap.get(r.assigneeId) : null;
+      return {
+        id: r.id,
+        title: r.title,
+        completedAt: r.updatedAt,
+        assignee: profile
+          ? { id: profile.id, fullName: profile.fullName, avatarUrl: profile.avatarUrl }
+          : null,
+      };
+    });
     return NextResponse.json({ data: enriched });
   }
 
@@ -232,21 +219,18 @@ export async function GET(request: Request, { params }: Params) {
       .where(and(baseConditions, isNotNull(tasks.assigneeId)))
       .groupBy(tasks.assigneeId);
 
-    const enriched = await Promise.all(
-      rows.map(async (r) => {
-        const profile = r.assigneeId
-          ? await db.query.profiles.findFirst({
-              where: eq(profiles.id, r.assigneeId),
-            })
-          : null;
-        return {
-          userId: r.assigneeId ?? "",
-          fullName: profile?.fullName ?? "Sin asignar",
-          taskCount: Number(r.count),
-          estimatedHours: Number(r.estimatedHours),
-        };
-      })
-    );
+    const workloadAssigneeIds = rows.map((r) => r.assigneeId).filter(Boolean) as string[];
+    const workloadProfileRows = workloadAssigneeIds.length > 0 ? await db.select().from(profiles).where(inArray(profiles.id, workloadAssigneeIds)) : [];
+    const workloadProfileMap = new Map(workloadProfileRows.map((p) => [p.id, p]));
+    const enriched = rows.map((r) => {
+      const profile = r.assigneeId ? workloadProfileMap.get(r.assigneeId) : null;
+      return {
+        userId: r.assigneeId ?? "",
+        fullName: profile?.fullName ?? "Sin asignar",
+        taskCount: Number(r.count),
+        estimatedHours: Number(r.estimatedHours),
+      };
+    });
     return NextResponse.json({ data: enriched });
   }
 

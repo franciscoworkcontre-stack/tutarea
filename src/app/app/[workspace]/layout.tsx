@@ -17,28 +17,21 @@ export default async function WorkspaceLayout({ children, params }: Props) {
 
   if (!user) redirect("/login");
 
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.slug, slug),
-  });
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
 
   if (!workspace) redirect("/app");
 
-  const membership = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspace.id),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [membership] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspace.id),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!membership) redirect("/app");
 
-  const workspaceProjects = await db.query.projects.findMany({
-    where: and(
-      eq(projects.workspaceId, workspace.id),
-      eq(projects.status, "active")
-    ),
-    orderBy: [projects.position],
-  });
+  const workspaceProjects = await db.select().from(projects).where(and(
+    eq(projects.workspaceId, workspace.id),
+    eq(projects.status, "active")
+  )).orderBy(projects.position);
 
   return (
     <AppShell

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { portfolios, portfolioProjects, workspaces, workspaceMembers } from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import PortfolioList from "@/components/portfolios/portfolio-list";
 
@@ -30,26 +30,24 @@ export default async function PortfoliosPage({ params }: Props) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.slug, slug),
-  });
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
   if (!workspace) redirect("/app");
 
-  const membership = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspace.id),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [membership] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspace.id),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!membership) redirect("/app");
 
-  const rows = await db.query.portfolios.findMany({
-    where: eq(portfolios.workspaceId, workspace.id),
-    orderBy: [desc(portfolios.createdAt)],
-    with: {
-      portfolioProjects: true,
-    },
-  });
+  const portfolioRows = await db.select().from(portfolios).where(eq(portfolios.workspaceId, workspace.id)).orderBy(desc(portfolios.createdAt));
+  const portfolioIds = portfolioRows.map(p => p.id);
+  const allPortfolioProjects = portfolioIds.length > 0
+    ? await db.select().from(portfolioProjects).where(inArray(portfolioProjects.portfolioId, portfolioIds))
+    : [];
+  const rows = portfolioRows.map(p => ({
+    ...p,
+    portfolioProjects: allPortfolioProjects.filter(pp => pp.portfolioId === p.id),
+  }));
 
   const portfolioSummaries: PortfolioSummary[] = rows.map((p) => ({
     id: p.id,

@@ -14,13 +14,11 @@ export default async function InvitePage({ params }: Props) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const invitation = await db.query.invitations.findFirst({
-    where: and(
-      eq(invitations.token, token),
-      isNull(invitations.acceptedAt),
-      gt(invitations.expiresAt, new Date())
-    ),
-  });
+  const [invitation] = await db.select().from(invitations).where(and(
+    eq(invitations.token, token),
+    isNull(invitations.acceptedAt),
+    gt(invitations.expiresAt, new Date())
+  )).limit(1);
 
   if (!invitation) {
     return (
@@ -35,9 +33,7 @@ export default async function InvitePage({ params }: Props) {
     );
   }
 
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.id, invitation.workspaceId),
-  });
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, invitation.workspaceId)).limit(1);
 
   return (
     <InviteAccept

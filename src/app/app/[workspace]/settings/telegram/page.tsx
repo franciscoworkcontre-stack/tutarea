@@ -15,9 +15,7 @@ export default async function TelegramPage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const profile = await db.query.profiles.findFirst({
-    where: eq(profiles.id, user.id),
-  });
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
 
   return (
     <TelegramSettings

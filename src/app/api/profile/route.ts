@@ -53,9 +53,7 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const profile = await db.query.profiles.findFirst({
-    where: eq(profiles.id, user.id),
-  });
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
 
-  return NextResponse.json({ profile });
+  return NextResponse.json({ profile: profile ?? null });
 }

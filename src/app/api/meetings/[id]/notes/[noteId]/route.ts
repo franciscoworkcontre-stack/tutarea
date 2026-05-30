@@ -14,25 +14,19 @@ export async function PUT(
 
   const { id, noteId } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const note = await db.query.meetingNotes.findFirst({
-    where: and(
-      eq(meetingNotes.id, noteId),
-      eq(meetingNotes.meetingId, id)
-    ),
-  });
+  const [note] = await db.select().from(meetingNotes).where(and(
+    eq(meetingNotes.id, noteId),
+    eq(meetingNotes.meetingId, id)
+  )).limit(1);
   if (!note) return NextResponse.json({ error: "Note not found" }, { status: 404 });
 
   const body = (await request.json()) as Partial<{
@@ -69,25 +63,19 @@ export async function DELETE(
 
   const { id, noteId } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const note = await db.query.meetingNotes.findFirst({
-    where: and(
-      eq(meetingNotes.id, noteId),
-      eq(meetingNotes.meetingId, id)
-    ),
-  });
+  const [note] = await db.select().from(meetingNotes).where(and(
+    eq(meetingNotes.id, noteId),
+    eq(meetingNotes.meetingId, id)
+  )).limit(1);
   if (!note) return NextResponse.json({ error: "Note not found" }, { status: 404 });
 
   await db.delete(meetingNotes).where(eq(meetingNotes.id, noteId));

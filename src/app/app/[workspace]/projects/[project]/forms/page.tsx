@@ -18,26 +18,18 @@ export default async function FormsPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-    with: { workspace: true },
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   if (!project) redirect(`/app/${workspaceSlug}/projects`);
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, project.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) redirect(`/app/${workspaceSlug}`);
 
-  const projectForms = await db.query.forms.findMany({
-    where: eq(forms.projectId, projectId),
-    orderBy: [desc(forms.createdAt)],
-  });
+  const projectForms = await db.select().from(forms).where(eq(forms.projectId, projectId)).orderBy(desc(forms.createdAt));
 
   return (
     <div className="h-full flex flex-col">

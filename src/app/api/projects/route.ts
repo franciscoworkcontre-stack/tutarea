@@ -14,22 +14,17 @@ export async function GET(request: Request) {
   const workspaceId = searchParams.get("workspaceId");
   if (!workspaceId) return NextResponse.json({ error: "workspaceId required" }, { status: 400 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const workspaceProjects = await db.query.projects.findMany({
-    where: and(
-      eq(projects.workspaceId, workspaceId),
-      eq(projects.status, "active")
-    ),
-    orderBy: [projects.position],
-  });
+  const workspaceProjects = await db.select().from(projects).where(and(
+    eq(projects.workspaceId, workspaceId),
+    eq(projects.status, "active")
+  )).orderBy(projects.position);
 
   return NextResponse.json({ projects: workspaceProjects });
 }
@@ -51,20 +46,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "name and workspaceId required" }, { status: 400 });
   }
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, body.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, body.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member || member.role === "viewer" || member.role === "guest") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const existingProjects = await db.query.projects.findMany({
-    where: eq(projects.workspaceId, body.workspaceId),
-  });
+  const existingProjects = await db.select().from(projects).where(eq(projects.workspaceId, body.workspaceId));
 
   const [project] = await db
     .insert(projects)

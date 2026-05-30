@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { tasks, taskStatuses, projects, workspaceMembers, profiles } from "@/db/schema";
-import { eq, and, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, inArray } from "drizzle-orm";
 import BoardView from "@/components/tasks/board-view";
 
 type Props = {
@@ -16,44 +16,32 @@ export default async function BoardPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   if (!project) redirect(`/app/${workspaceSlug}/projects`);
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, project.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) redirect(`/app/${workspaceSlug}`);
 
-  const statuses = await db.query.taskStatuses.findMany({
-    where: eq(taskStatuses.projectId, projectId),
-    orderBy: [taskStatuses.position],
-  });
+  const statuses = await db.select().from(taskStatuses).where(eq(taskStatuses.projectId, projectId)).orderBy(taskStatuses.position);
 
-  const projectTasks = await db.query.tasks.findMany({
-    where: and(
-      eq(tasks.projectId, projectId),
-      isNull(tasks.archivedAt),
-      isNull(tasks.parentTaskId)
-    ),
-    orderBy: [tasks.position],
-  });
+  const projectTasks = await db.select().from(tasks).where(and(
+    eq(tasks.projectId, projectId),
+    isNull(tasks.archivedAt),
+    isNull(tasks.parentTaskId)
+  )).orderBy(tasks.position);
 
   // Fetch subtasks for count badges
   const doneStatus = statuses.find((s) => s.type === "done");
-  const allSubtasks = await db.query.tasks.findMany({
-    where: and(
-      eq(tasks.projectId, projectId),
-      isNull(tasks.archivedAt),
-      isNotNull(tasks.parentTaskId),
-    ),
-  });
+  const allSubtasks = await db.select().from(tasks).where(and(
+    eq(tasks.projectId, projectId),
+    isNull(tasks.archivedAt),
+    isNotNull(tasks.parentTaskId),
+  ));
   const subtaskCounts: Record<string, { total: number; completed: number }> = {};
   for (const st of allSubtasks) {
     if (!st.parentTaskId) continue;
@@ -62,15 +50,11 @@ export default async function BoardPage({ params }: Props) {
     if (doneStatus && st.statusId === doneStatus.id) subtaskCounts[st.parentTaskId]!.completed++;
   }
 
-  const workspaceUsers = await db.query.workspaceMembers.findMany({
-    where: eq(workspaceMembers.workspaceId, project.workspaceId),
-  });
+  const workspaceUsers = await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, project.workspaceId));
 
-  const userProfiles = await Promise.all(
-    workspaceUsers.map((m) =>
-      db.query.profiles.findFirst({ where: eq(profiles.id, m.userId) })
-    )
-  );
+  const userIds = workspaceUsers.map(u => u.userId);
+  const profileRows = userIds.length > 0 ? await db.select().from(profiles).where(inArray(profiles.id, userIds)) : [];
+  const userProfiles = workspaceUsers.map(u => profileRows.find(p => p.id === u.userId));
 
   const members = workspaceUsers.map((m, i) => ({
     userId: m.userId,

@@ -14,26 +14,20 @@ export async function GET(
 
   const { id, agendaId } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Check workspace membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const agendaItem = await db.query.meetingAgendaItems.findFirst({
-    where: and(
-      eq(meetingAgendaItems.id, agendaId),
-      eq(meetingAgendaItems.meetingId, id)
-    ),
-  });
+  const [agendaItem] = await db.select().from(meetingAgendaItems).where(and(
+    eq(meetingAgendaItems.id, agendaId),
+    eq(meetingAgendaItems.meetingId, id)
+  )).limit(1);
   if (!agendaItem) return NextResponse.json({ error: "Agenda item not found" }, { status: 404 });
 
   return NextResponse.json({ agendaItem });
@@ -49,26 +43,20 @@ export async function PUT(
 
   const { id, agendaId } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Check workspace membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const agendaItem = await db.query.meetingAgendaItems.findFirst({
-    where: and(
-      eq(meetingAgendaItems.id, agendaId),
-      eq(meetingAgendaItems.meetingId, id)
-    ),
-  });
+  const [agendaItem] = await db.select().from(meetingAgendaItems).where(and(
+    eq(meetingAgendaItems.id, agendaId),
+    eq(meetingAgendaItems.meetingId, id)
+  )).limit(1);
   if (!agendaItem) return NextResponse.json({ error: "Agenda item not found" }, { status: 404 });
 
   const body = (await request.json()) as Partial<{
@@ -111,32 +99,24 @@ export async function DELETE(
   const { searchParams } = new URL(request.url);
   const force = searchParams.get("force") === "true";
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Check workspace membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const agendaItem = await db.query.meetingAgendaItems.findFirst({
-    where: and(
-      eq(meetingAgendaItems.id, agendaId),
-      eq(meetingAgendaItems.meetingId, id)
-    ),
-  });
+  const [agendaItem] = await db.select().from(meetingAgendaItems).where(and(
+    eq(meetingAgendaItems.id, agendaId),
+    eq(meetingAgendaItems.meetingId, id)
+  )).limit(1);
   if (!agendaItem) return NextResponse.json({ error: "Agenda item not found" }, { status: 404 });
 
   // Check for children
-  const children = await db.query.meetingAgendaItems.findMany({
-    where: eq(meetingAgendaItems.parentItemId, agendaId),
-  });
+  const children = await db.select().from(meetingAgendaItems).where(eq(meetingAgendaItems.parentItemId, agendaId));
 
   if (children.length > 0 && !force) {
     return NextResponse.json(

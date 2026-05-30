@@ -14,17 +14,13 @@ export async function GET(req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const form = await db.query.forms.findFirst({
-    where: eq(forms.id, formId),
-  });
+  const [form] = await db.select().from(forms).where(eq(forms.id, formId)).limit(1);
   if (!form) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, form.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, form.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { searchParams } = new URL(req.url);
@@ -37,12 +33,7 @@ export async function GET(req: Request, { params }: Params) {
     ? and(eq(formSubmissions.formId, formId), eq(formSubmissions.status, status))
     : eq(formSubmissions.formId, formId);
 
-  const submissions = await db.query.formSubmissions.findMany({
-    where: whereClause,
-    orderBy: [desc(formSubmissions.submittedAt)],
-    limit,
-    offset,
-  });
+  const submissions = await db.select().from(formSubmissions).where(whereClause).orderBy(desc(formSubmissions.submittedAt)).limit(limit).offset(offset);
 
   return NextResponse.json({ submissions, page, limit });
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { portfolios, portfolioProjects, workspaceMembers } from "@/db/schema";
-import { eq, and, desc, count } from "drizzle-orm";
+import { eq, and, desc, count, inArray } from "drizzle-orm";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -17,21 +17,18 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "workspaceId required" }, { status: 400 });
   }
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const rows = await db.query.portfolios.findMany({
-    where: eq(portfolios.workspaceId, workspaceId),
-    orderBy: [desc(portfolios.createdAt)],
-    with: {
-      portfolioProjects: true,
-    },
-  });
+  const portfolioRows = await db.select().from(portfolios).where(eq(portfolios.workspaceId, workspaceId)).orderBy(desc(portfolios.createdAt));
+  const portfolioIds = portfolioRows.map((p) => p.id);
+  const allPortfolioProjects = portfolioIds.length > 0
+    ? await db.select().from(portfolioProjects).where(inArray(portfolioProjects.portfolioId, portfolioIds))
+    : [];
+  const rows = portfolioRows.map((p) => ({ ...p, portfolioProjects: allPortfolioProjects.filter((pp) => pp.portfolioId === p.id) }));
 
   const portfoliosWithCount = rows.map((p) => ({
     id: p.id,
@@ -69,12 +66,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, body.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, body.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const [portfolio] = await db

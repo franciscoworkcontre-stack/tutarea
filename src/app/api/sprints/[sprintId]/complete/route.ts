@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { sprints, sprintTasks, tasks, workspaceMembers } from "@/db/schema";
-import { eq, and } from "drizzle-orm";
+import { sprints, sprintTasks, tasks, taskStatuses, workspaceMembers } from "@/db/schema";
+import { eq, and, inArray } from "drizzle-orm";
 
 type Params = { params: Promise<{ sprintId: string }> };
 
@@ -14,24 +14,25 @@ export async function POST(req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const sprint = await db.query.sprints.findFirst({
-    where: eq(sprints.id, sprintId),
-    with: {
-      sprintTasks: {
-        with: { task: { with: { status: true } } },
-      },
-    },
-  });
+  const [sprint] = await db.select().from(sprints).where(eq(sprints.id, sprintId)).limit(1);
 
   if (!sprint) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, sprint.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, sprint.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  // Fetch sprint tasks with task status
+  const sprintTaskRows = await db.select().from(sprintTasks).where(eq(sprintTasks.sprintId, sprintId));
+  const taskIds = sprintTaskRows.map((st) => st.taskId);
+  const taskRows = taskIds.length > 0 ? await db.select().from(tasks).where(inArray(tasks.id, taskIds)) : [];
+  const statusIds = [...new Set(taskRows.map((t) => t.statusId).filter(Boolean))] as string[];
+  const statusRows = statusIds.length > 0 ? await db.select().from(taskStatuses).where(inArray(taskStatuses.id, statusIds)) : [];
+  const statusMap = new Map(statusRows.map((s) => [s.id, s]));
+  const taskMap = new Map(taskRows.map((t) => [t.id, { ...t, status: t.statusId ? (statusMap.get(t.statusId) ?? null) : null }]));
+  const sprintTasksWithStatus = sprintTaskRows.map((st) => ({ ...st, task: taskMap.get(st.taskId) ?? null }));
 
   if (sprint.status !== "active") {
     return NextResponse.json(
@@ -43,11 +44,11 @@ export async function POST(req: Request, { params }: Params) {
   const body = (await req.json()) as { moveIncompleteToSprintId?: string };
 
   // Separate done vs incomplete tasks
-  const doneTasks = sprint.sprintTasks.filter(
-    (st) => st.task.status?.type === "done"
+  const doneTasks = sprintTasksWithStatus.filter(
+    (st) => st.task?.status?.type === "done"
   );
-  const incompleteTasks = sprint.sprintTasks.filter(
-    (st) => st.task.status?.type !== "done"
+  const incompleteTasks = sprintTasksWithStatus.filter(
+    (st) => st.task?.status?.type !== "done"
   );
 
   // Velocity = sum of story points for done tasks
@@ -58,9 +59,7 @@ export async function POST(req: Request, { params }: Params) {
 
   // If moveIncompleteToSprintId is provided, move incomplete tasks there
   if (body.moveIncompleteToSprintId && incompleteTasks.length > 0) {
-    const targetSprint = await db.query.sprints.findFirst({
-      where: eq(sprints.id, body.moveIncompleteToSprintId),
-    });
+    const [targetSprint] = await db.select().from(sprints).where(eq(sprints.id, body.moveIncompleteToSprintId)).limit(1);
 
     if (!targetSprint || targetSprint.projectId !== sprint.projectId) {
       return NextResponse.json(

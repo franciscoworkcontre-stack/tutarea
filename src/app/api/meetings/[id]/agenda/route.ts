@@ -14,24 +14,17 @@ export async function GET(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Check workspace membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const agendaItems = await db.query.meetingAgendaItems.findMany({
-    where: eq(meetingAgendaItems.meetingId, id),
-    orderBy: [asc(meetingAgendaItems.orderIdx)],
-  });
+  const agendaItems = await db.select().from(meetingAgendaItems).where(eq(meetingAgendaItems.meetingId, id)).orderBy(asc(meetingAgendaItems.orderIdx));
 
   return NextResponse.json({ agendaItems });
 }
@@ -46,18 +39,14 @@ export async function POST(
 
   const { id } = await params;
 
-  const meeting = await db.query.meetings.findFirst({
-    where: eq(meetings.id, id),
-  });
+  const [meeting] = await db.select().from(meetings).where(eq(meetings.id, id)).limit(1);
   if (!meeting) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Check workspace membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, meeting.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, meeting.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await request.json()) as {
@@ -75,9 +64,7 @@ export async function POST(
 
   // Calculate orderIdx = max(siblings) + 1
   // Get all items for this meeting to find max sibling orderIdx
-  const siblings = await db.query.meetingAgendaItems.findMany({
-    where: eq(meetingAgendaItems.meetingId, id),
-  });
+  const siblings = await db.select().from(meetingAgendaItems).where(eq(meetingAgendaItems.meetingId, id));
 
   const filteredSiblings = siblings.filter(s =>
     body.parentItemId

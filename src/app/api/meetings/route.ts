@@ -20,30 +20,23 @@ export async function GET(request: Request) {
   // Determine workspaceId for membership check
   let resolvedWorkspaceId = workspaceId;
   if (!resolvedWorkspaceId && projectId) {
-    const project = await db.query.projects.findFirst({
-      where: eq(projects.id, projectId),
-    });
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
     if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
     resolvedWorkspaceId = project.workspaceId;
   }
 
   // Check membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, resolvedWorkspaceId!),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, resolvedWorkspaceId!),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const conditions = projectId
     ? eq(meetings.projectId, projectId)
     : eq(meetings.workspaceId, resolvedWorkspaceId!);
 
-  const rows = await db.query.meetings.findMany({
-    where: conditions,
-    orderBy: [desc(meetings.scheduledAt)],
-  });
+  const rows = await db.select().from(meetings).where(conditions).orderBy(desc(meetings.scheduledAt));
 
   return NextResponse.json({ meetings: rows });
 }
@@ -67,18 +60,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "projectId and title are required" }, { status: 400 });
   }
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, body.projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, body.projectId)).limit(1);
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
   // Check workspace membership
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, project.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const [meeting] = await db

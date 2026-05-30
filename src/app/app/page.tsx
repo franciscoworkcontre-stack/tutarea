@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { workspaceMembers } from "@/db/schema";
+import { workspaceMembers, workspaces } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export default async function AppPage() {
@@ -10,17 +10,13 @@ export default async function AppPage() {
 
   if (!user) redirect("/login");
 
-  const memberships = await db.query.workspaceMembers.findMany({
-    where: eq(workspaceMembers.userId, user.id),
-    with: { workspace: true },
-    limit: 1,
-  });
+  const [membership] = await db.select().from(workspaceMembers).where(eq(workspaceMembers.userId, user.id)).limit(1);
 
-  if (memberships.length === 0) {
+  if (!membership) {
     redirect("/onboarding");
   }
 
-  const firstWorkspace = memberships[0]?.workspace;
+  const [firstWorkspace] = await db.select().from(workspaces).where(eq(workspaces.id, membership.workspaceId)).limit(1);
   if (firstWorkspace) {
     redirect(`/app/${firstWorkspace.slug}`);
   }

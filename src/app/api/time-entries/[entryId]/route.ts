@@ -17,9 +17,7 @@ export async function PUT(
 
   const { entryId } = await params;
 
-  const entry = await db.query.timeEntries.findFirst({
-    where: eq(timeEntries.id, entryId),
-  });
+  const [entry] = await db.select().from(timeEntries).where(eq(timeEntries.id, entryId)).limit(1);
   if (!entry) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (entry.userId !== user.id)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -67,12 +65,10 @@ export async function DELETE(
 
   const { entryId } = await params;
 
-  const entry = await db.query.timeEntries.findFirst({
-    where: and(
-      eq(timeEntries.id, entryId),
-      eq(timeEntries.userId, user.id)
-    ),
-  });
+  const [entry] = await db.select().from(timeEntries).where(and(
+    eq(timeEntries.id, entryId),
+    eq(timeEntries.userId, user.id)
+  )).limit(1);
   if (!entry) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   await db.delete(timeEntries).where(eq(timeEntries.id, entryId));

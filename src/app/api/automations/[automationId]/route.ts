@@ -17,18 +17,14 @@ export async function GET(
 
   const { automationId } = await params;
 
-  const automation = await db.query.automations.findFirst({
-    where: eq(automations.id, automationId),
-  });
+  const [automation] = await db.select().from(automations).where(eq(automations.id, automationId)).limit(1);
   if (!automation)
     return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, automation.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, automation.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -55,18 +51,14 @@ export async function PUT(
 
   const { automationId } = await params;
 
-  const existing = await db.query.automations.findFirst({
-    where: eq(automations.id, automationId),
-  });
+  const [existing] = await db.select().from(automations).where(eq(automations.id, automationId)).limit(1);
   if (!existing)
     return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, existing.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, existing.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -118,18 +110,14 @@ export async function DELETE(
 
   const { automationId } = await params;
 
-  const existing = await db.query.automations.findFirst({
-    where: eq(automations.id, automationId),
-  });
+  const [existing] = await db.select().from(automations).where(eq(automations.id, automationId)).limit(1);
   if (!existing)
     return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, existing.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, existing.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

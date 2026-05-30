@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { goals, workspaceMembers } from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { goals, keyResults, workspaceMembers } from "@/db/schema";
+import { eq, and, desc, inArray } from "drizzle-orm";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -20,12 +20,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "workspaceId required" }, { status: 400 });
   }
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -44,13 +42,12 @@ export async function GET(request: Request) {
     conditions.push(eq(goals.projectId, projectId));
   }
 
-  const goalsWithKRs = await db.query.goals.findMany({
-    where: and(...conditions),
-    orderBy: [desc(goals.createdAt)],
-    with: {
-      keyResults: true,
-    },
-  });
+  const goalsRaw = await db.select().from(goals).where(and(...conditions)).orderBy(desc(goals.createdAt));
+  const goalIds = goalsRaw.map((g) => g.id);
+  const allKeyResults = goalIds.length > 0
+    ? await db.select().from(keyResults).where(inArray(keyResults.goalId, goalIds))
+    : [];
+  const goalsWithKRs = goalsRaw.map((g) => ({ ...g, keyResults: allKeyResults.filter((kr) => kr.goalId === g.id) }));
 
   return NextResponse.json({ goals: goalsWithKRs });
 }
@@ -79,12 +76,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, body.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, body.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

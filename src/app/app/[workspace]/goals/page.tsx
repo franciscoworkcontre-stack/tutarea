@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { goals, keyResults, workspaces, workspaceMembers, profiles, projects } from "@/db/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import GoalsList from "@/components/goals/goals-list";
 import type { InferSelectModel } from "drizzle-orm";
@@ -65,41 +65,35 @@ export default async function GoalsPage({ params }: Props) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.slug, slug),
-  });
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
   if (!workspace) redirect("/app");
 
-  const membership = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspace.id),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [membership] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspace.id),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!membership) redirect("/app");
 
   // Fetch goals with key results
-  const goalsWithKRs = await db.query.goals.findMany({
-    where: eq(goals.workspaceId, workspace.id),
-    orderBy: [desc(goals.createdAt)],
-    with: {
-      keyResults: true,
-    },
-  });
+  const goalsRaw = await db.select().from(goals).where(eq(goals.workspaceId, workspace.id)).orderBy(desc(goals.createdAt));
+  const goalIds = goalsRaw.map(g => g.id);
+  const allKeyResults = goalIds.length > 0
+    ? await db.select().from(keyResults).where(inArray(keyResults.goalId, goalIds))
+    : [];
+  const goalsWithKRs = goalsRaw.map(g => ({
+    ...g,
+    keyResults: allKeyResults.filter(kr => kr.goalId === g.id),
+  }));
 
   // Fetch workspace members
-  const members = await db.query.workspaceMembers.findMany({
-    where: eq(workspaceMembers.workspaceId, workspace.id),
-  });
+  const members = await db.select().from(workspaceMembers).where(eq(workspaceMembers.workspaceId, workspace.id));
 
   // Fetch profiles for all members
   const allProfileIds = members.map((m) => m.userId);
   const allProfiles: (InferSelectModel<typeof profiles> | undefined)[] =
     allProfileIds.length > 0
-      ? await Promise.all(
-          allProfileIds.map((uid) =>
-            db.query.profiles.findFirst({ where: eq(profiles.id, uid) })
-          )
+      ? await db.select().from(profiles).where(inArray(profiles.id, allProfileIds)).then(rows =>
+          allProfileIds.map(id => rows.find(p => p.id === id))
         )
       : [];
 
@@ -109,12 +103,10 @@ export default async function GoalsPage({ params }: Props) {
   }));
 
   // Fetch workspace projects
-  const workspaceProjects = await db.query.projects.findMany({
-    where: and(
-      eq(projects.workspaceId, workspace.id),
-      eq(projects.status, "active")
-    ),
-  });
+  const workspaceProjects = await db.select().from(projects).where(and(
+    eq(projects.workspaceId, workspace.id),
+    eq(projects.status, "active")
+  ));
 
   // Serialize: convert Date → ISO string for Next.js Client Component boundary
   const serializedGoals: SerializedGoal[] = goalsWithKRs.map((g) => ({

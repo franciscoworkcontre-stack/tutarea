@@ -8,17 +8,13 @@ import { calculateNextOccurrence } from "@/lib/recurrence/recurrence-utils";
 type RouteContext = { params: Promise<{ id: string }> };
 
 async function getAuthorizedTask(taskId: string, userId: string) {
-  const task = await db.query.tasks.findFirst({
-    where: eq(tasks.id, taskId),
-  });
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1);
   if (!task) return { task: null, error: "Not found", status: 404 } as const;
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, task.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, task.workspaceId),
+    eq(workspaceMembers.userId, userId)
+  )).limit(1);
   if (!member) return { task: null, error: "Forbidden", status: 403 } as const;
 
   return { task, error: null, status: 200 } as const;
@@ -36,9 +32,7 @@ export async function GET(
   const { task, error, status } = await getAuthorizedTask(id, user.id);
   if (!task) return NextResponse.json({ error }, { status });
 
-  const recurrence = await db.query.taskRecurrence.findFirst({
-    where: eq(taskRecurrence.taskId, id),
-  });
+  const [recurrence] = await db.select().from(taskRecurrence).where(eq(taskRecurrence.taskId, id)).limit(1);
 
   return NextResponse.json({ recurrence: recurrence ?? null });
 }

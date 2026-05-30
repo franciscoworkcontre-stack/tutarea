@@ -10,7 +10,7 @@ import {
   workspaces,
   workspaceMembers,
 } from "@/db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { redirect, notFound } from "next/navigation";
 import PortfolioView from "@/components/portfolios/portfolio-view";
 
@@ -45,40 +45,34 @@ export default async function PortfolioDetailPage({ params }: Props) {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.slug, slug),
-  });
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
   if (!workspace) redirect("/app");
 
-  const membership = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspace.id),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [membership] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, workspace.id),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!membership) redirect("/app");
 
-  const portfolio = await db.query.portfolios.findFirst({
-    where: and(
-      eq(portfolios.id, portfolioId),
-      eq(portfolios.workspaceId, workspace.id)
-    ),
-  });
+  const [portfolio] = await db.select().from(portfolios).where(and(
+    eq(portfolios.id, portfolioId),
+    eq(portfolios.workspaceId, workspace.id)
+  )).limit(1);
   if (!portfolio) notFound();
 
-  const ppRows = await db.query.portfolioProjects.findMany({
-    where: eq(portfolioProjects.portfolioId, portfolioId),
-    with: { project: true },
-    orderBy: [desc(portfolioProjects.addedAt)],
-  });
+  const ppRowsRaw = await db.select().from(portfolioProjects).where(eq(portfolioProjects.portfolioId, portfolioId)).orderBy(desc(portfolioProjects.addedAt));
+  const ppProjectIds = ppRowsRaw.map(pp => pp.projectId);
+  const ppProjectRows = ppProjectIds.length > 0
+    ? await db.select().from(projects).where(inArray(projects.id, ppProjectIds))
+    : [];
+  const ppProjectMap = new Map(ppProjectRows.map(p => [p.id, p]));
+  const ppRows = ppRowsRaw.map(pp => ({ ...pp, project: ppProjectMap.get(pp.projectId)! })).filter(pp => pp.project);
 
   const portfolioProjectsData: PortfolioProject[] = await Promise.all(
     ppRows.map(async (pp) => {
       const project = pp.project;
 
-      const statuses = await db.query.taskStatuses.findMany({
-        where: eq(taskStatuses.projectId, project.id),
-      });
+      const statuses = await db.select().from(taskStatuses).where(eq(taskStatuses.projectId, project.id));
 
       const doneStatusIds = statuses
         .filter((s) => s.type === "done")
@@ -87,12 +81,10 @@ export default async function PortfolioDetailPage({ params }: Props) {
         .filter((s) => s.type === "in_progress" || s.type === "review")
         .map((s) => s.id);
 
-      const allTasks = await db.query.tasks.findMany({
-        where: and(
-          eq(tasks.projectId, project.id),
-          sql`${tasks.archivedAt} IS NULL`
-        ),
-      });
+      const allTasks = await db.select().from(tasks).where(and(
+        eq(tasks.projectId, project.id),
+        sql`${tasks.archivedAt} IS NULL`
+      ));
 
       const total = allTasks.length;
       const completed = allTasks.filter(
@@ -112,9 +104,7 @@ export default async function PortfolioDetailPage({ params }: Props) {
 
       const completionPercent = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-      const memberRows = await db.query.projectMembers.findMany({
-        where: eq(projectMembers.projectId, project.id),
-      });
+      const memberRows = await db.select().from(projectMembers).where(eq(projectMembers.projectId, project.id));
 
       const taskWithLatestDue = allTasks
         .filter((t) => t.dueDate !== null)

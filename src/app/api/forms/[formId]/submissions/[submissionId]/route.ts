@@ -22,25 +22,19 @@ export async function GET(_req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const form = await db.query.forms.findFirst({
-    where: eq(forms.id, formId),
-  });
+  const [form] = await db.select().from(forms).where(eq(forms.id, formId)).limit(1);
   if (!form) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, form.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, form.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const submission = await db.query.formSubmissions.findFirst({
-    where: and(
-      eq(formSubmissions.id, submissionId),
-      eq(formSubmissions.formId, formId)
-    ),
-  });
+  const [submission] = await db.select().from(formSubmissions).where(and(
+    eq(formSubmissions.id, submissionId),
+    eq(formSubmissions.formId, formId)
+  )).limit(1);
   if (!submission) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json({ submission });
@@ -54,25 +48,19 @@ export async function PUT(req: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const form = await db.query.forms.findFirst({
-    where: eq(forms.id, formId),
-  });
+  const [form] = await db.select().from(forms).where(eq(forms.id, formId)).limit(1);
   if (!form) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, form.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, form.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const submission = await db.query.formSubmissions.findFirst({
-    where: and(
-      eq(formSubmissions.id, submissionId),
-      eq(formSubmissions.formId, formId)
-    ),
-  });
+  const [submission] = await db.select().from(formSubmissions).where(and(
+    eq(formSubmissions.id, submissionId),
+    eq(formSubmissions.formId, formId)
+  )).limit(1);
   if (!submission) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const body = (await req.json()) as {
@@ -88,14 +76,10 @@ export async function PUT(req: Request, { params }: Params) {
 
   if (body.convertToTask && !convertedTaskId) {
     try {
-      const project = await db.query.projects.findFirst({
-        where: eq(projects.id, form.projectId),
-      });
+      const [project] = await db.select().from(projects).where(eq(projects.id, form.projectId)).limit(1);
 
       if (project) {
-        const existingTasks = await db.query.tasks.findMany({
-          where: eq(tasks.projectId, form.projectId),
-        });
+        const existingTasks = await db.select().from(tasks).where(eq(tasks.projectId, form.projectId));
 
         let taskTitle = "Untitled submission";
         const titleField = form.fieldsJsonb.find(
@@ -118,10 +102,7 @@ export async function PUT(req: Request, { params }: Params) {
         // Pick first available status for the project if no default set
         let statusId = form.defaultStatusId;
         if (!statusId) {
-          const defaultStatus = await db.query.taskStatuses.findFirst({
-            where: eq(taskStatuses.projectId, form.projectId),
-            orderBy: [taskStatuses.position],
-          });
+          const [defaultStatus] = await db.select().from(taskStatuses).where(eq(taskStatuses.projectId, form.projectId)).orderBy(taskStatuses.position).limit(1);
           statusId = defaultStatus?.id ?? null;
         }
 

@@ -17,18 +17,14 @@ export async function POST(
 
   const { automationId } = await params;
 
-  const existing = await db.query.automations.findFirst({
-    where: eq(automations.id, automationId),
-  });
+  const [existing] = await db.select().from(automations).where(eq(automations.id, automationId)).limit(1);
   if (!existing)
     return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, existing.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, existing.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member)
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

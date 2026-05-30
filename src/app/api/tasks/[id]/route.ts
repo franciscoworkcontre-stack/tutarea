@@ -21,19 +21,19 @@ export async function GET(
 
   const { id } = await params;
 
-  const task = await db.query.tasks.findFirst({
-    where: eq(tasks.id, id),
-    with: { status: true },
-  });
+  const [taskRow] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
 
-  if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!taskRow) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, task.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [taskStatus] = taskRow.statusId
+    ? await db.select().from(taskStatuses).where(eq(taskStatuses.id, taskRow.statusId)).limit(1)
+    : [null];
+  const task = { ...taskRow, status: taskStatus ?? null };
+
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, task.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -50,18 +50,14 @@ export async function PATCH(
 
   const { id } = await params;
 
-  const task = await db.query.tasks.findFirst({
-    where: eq(tasks.id, id),
-  });
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
 
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, task.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, task.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
@@ -100,14 +96,10 @@ export async function PATCH(
   // ── Auto-trigger recurrence when task becomes "done" ─────────────────────
   if (body.statusId !== undefined && body.statusId !== task.statusId) {
     // Check if the new status is of type "done"
-    const newStatus = await db.query.taskStatuses.findFirst({
-      where: eq(taskStatuses.id, body.statusId ?? ""),
-    });
+    const [newStatus] = await db.select().from(taskStatuses).where(eq(taskStatuses.id, body.statusId ?? "")).limit(1);
 
     if (newStatus?.type === "done") {
-      const recurrence = await db.query.taskRecurrence.findFirst({
-        where: eq(taskRecurrence.taskId, id),
-      });
+      const [recurrence] = await db.select().from(taskRecurrence).where(eq(taskRecurrence.taskId, id)).limit(1);
 
       if (
         recurrence?.isActive &&
@@ -120,15 +112,10 @@ export async function PATCH(
         const nextDue = recurrence.nextOccurrenceAt ?? new Date();
 
         // Get first status for project
-        const firstStatus = await db.query.taskStatuses.findFirst({
-          where: eq(taskStatuses.projectId, task.projectId),
-          orderBy: [asc(taskStatuses.position)],
-        });
+        const [firstStatus] = await db.select().from(taskStatuses).where(eq(taskStatuses.projectId, task.projectId)).orderBy(asc(taskStatuses.position)).limit(1);
 
         // Generate unique key
-        const existingTasks = await db.query.tasks.findMany({
-          where: eq(tasks.projectId, task.projectId),
-        });
+        const existingTasks = await db.select().from(tasks).where(eq(tasks.projectId, task.projectId));
         const keyPrefix = task.key.split("-").slice(0, -1).join("-");
         const taskKey = `${keyPrefix}-${existingTasks.length + 1}`;
 
@@ -231,18 +218,14 @@ export async function DELETE(
 
   const { id } = await params;
 
-  const task = await db.query.tasks.findFirst({
-    where: eq(tasks.id, id),
-  });
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
 
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, task.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, task.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

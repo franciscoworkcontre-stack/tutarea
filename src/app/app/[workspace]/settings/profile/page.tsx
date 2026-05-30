@@ -15,9 +15,8 @@ export default async function ProfilePage({ params }: Props) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const profile = await db.query.profiles.findFirst({
-    where: eq(profiles.id, user.id),
-  });
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
 
   return <ProfileSettings profile={profile ?? null} userEmail={user.email ?? ""} workspaceSlug={workspace} />;
+
 }

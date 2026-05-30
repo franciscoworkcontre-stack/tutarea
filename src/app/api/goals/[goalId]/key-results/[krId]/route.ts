@@ -23,12 +23,10 @@ async function calculateKrProgress(
       .from(tasks)
       .where(eq(tasks.projectId, kr.linkedProjectId));
 
-    const doneStatuses = await db.query.taskStatuses.findMany({
-      where: and(
-        eq(taskStatuses.projectId, kr.linkedProjectId),
-        eq(taskStatuses.type, "done")
-      ),
-    });
+    const doneStatuses = await db.select().from(taskStatuses).where(and(
+      eq(taskStatuses.projectId, kr.linkedProjectId),
+      eq(taskStatuses.type, "done")
+    ));
 
     const doneStatusIds = doneStatuses.map((s) => s.id);
     let completedCount = 0;
@@ -69,9 +67,7 @@ async function calculateKrProgress(
 }
 
 async function recalculateGoalProgress(goalId: string): Promise<number> {
-  const krs = await db.query.keyResults.findMany({
-    where: eq(keyResults.goalId, goalId),
-  });
+  const krs = await db.select().from(keyResults).where(eq(keyResults.goalId, goalId));
 
   if (krs.length === 0) return 0;
 
@@ -88,24 +84,18 @@ export async function PUT(request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const goal = await db.query.goals.findFirst({
-    where: eq(goals.id, goalId),
-  });
+  const [goal] = await db.select().from(goals).where(eq(goals.id, goalId)).limit(1);
 
   if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, goal.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, goal.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const kr = await db.query.keyResults.findFirst({
-    where: and(eq(keyResults.id, krId), eq(keyResults.goalId, goalId)),
-  });
+  const [kr] = await db.select().from(keyResults).where(and(eq(keyResults.id, krId), eq(keyResults.goalId, goalId))).limit(1);
 
   if (!kr) return NextResponse.json({ error: "Key result not found" }, { status: 404 });
 
@@ -162,18 +152,14 @@ export async function DELETE(_request: Request, { params }: Params) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const goal = await db.query.goals.findFirst({
-    where: eq(goals.id, goalId),
-  });
+  const [goal] = await db.select().from(goals).where(eq(goals.id, goalId)).limit(1);
 
   if (!goal) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, goal.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, goal.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

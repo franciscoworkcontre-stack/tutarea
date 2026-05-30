@@ -9,7 +9,7 @@ import {
   tasks,
   taskStatuses,
 } from "@/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, inArray } from "drizzle-orm";
 
 export interface WorkloadTask {
   id: string;
@@ -49,50 +49,38 @@ export async function GET(
 
   const { projectId } = await params;
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db.select().from(workspaceMembers).where(and(
+    eq(workspaceMembers.workspaceId, project.workspaceId),
+    eq(workspaceMembers.userId, user.id)
+  )).limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const now = new Date();
 
   // 1. Get all project members
-  const projectMemberRows = await db.query.projectMembers.findMany({
-    where: eq(projectMembers.projectId, projectId),
-  });
+  const projectMemberRows = await db.select().from(projectMembers).where(eq(projectMembers.projectId, projectId));
 
   if (projectMemberRows.length === 0) {
     return NextResponse.json({ members: [] } satisfies WorkloadResponse);
   }
 
   // 2. Get profiles for all members
-  const memberProfiles = await Promise.all(
-    projectMemberRows.map((pm) =>
-      db.query.profiles.findFirst({ where: eq(profiles.id, pm.userId) })
-    )
-  );
+  const memberUserIds = projectMemberRows.map((pm) => pm.userId);
+  const memberProfileRows = await db.select().from(profiles).where(inArray(profiles.id, memberUserIds));
+  const memberProfiles = projectMemberRows.map((pm) => memberProfileRows.find((p) => p.id === pm.userId));
 
   // 3. Get task statuses to resolve statusType
-  const statusRows = await db.query.taskStatuses.findMany({
-    where: eq(taskStatuses.projectId, projectId),
-  });
+  const statusRows = await db.select().from(taskStatuses).where(eq(taskStatuses.projectId, projectId));
   const statusMap = new Map(statusRows.map((s) => [s.id, s.type]));
 
   // 4. Fetch all tasks for the project (non-archived), then filter by assignee
-  const allProjectTasks = await db.query.tasks.findMany({
-    where: and(
-      eq(tasks.projectId, projectId),
-      isNull(tasks.archivedAt)
-    ),
-  });
+  const allProjectTasks = await db.select().from(tasks).where(and(
+    eq(tasks.projectId, projectId),
+    isNull(tasks.archivedAt)
+  ));
 
   // 5. Build per-member metrics
   const membersData: WorkloadMember[] = projectMemberRows.map((pm, idx) => {
