@@ -16,26 +16,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "projectId required" }, { status: 400 });
   }
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, project.workspaceId),
+        eq(workspaceMembers.userId, user.id)
+      )
+    )
+    .limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  // Fetch mindmaps with node count
-  const results = await db.query.mindmaps.findMany({
-    where: eq(mindmaps.projectId, projectId),
-    orderBy: [desc(mindmaps.createdAt)],
-  });
+  const results = await db
+    .select()
+    .from(mindmaps)
+    .where(eq(mindmaps.projectId, projectId))
+    .orderBy(desc(mindmaps.createdAt));
 
   // Get node counts per mindmap
   const mindmapIds = results.map((m) => m.id);
@@ -76,18 +78,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "projectId and title required" }, { status: 400 });
   }
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, body.projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, body.projectId)).limit(1);
 
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, project.workspaceId),
+        eq(workspaceMembers.userId, user.id)
+      )
+    )
+    .limit(1);
 
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 

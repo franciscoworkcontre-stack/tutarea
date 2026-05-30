@@ -11,28 +11,28 @@ async function getEdgeAndVerifyAccess(
   | { error: NextResponse; edge?: never; mindmap?: never }
   | { error?: never; edge: typeof mindmapEdges.$inferSelect; mindmap: typeof mindmaps.$inferSelect }
 > {
-  const edge = await db.query.mindmapEdges.findFirst({
-    where: eq(mindmapEdges.id, edgeId),
-  });
+  const [edge] = await db.select().from(mindmapEdges).where(eq(mindmapEdges.id, edgeId)).limit(1);
 
   if (!edge) {
     return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
   }
 
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, edge.mindmapId),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, edge.mindmapId)).limit(1);
 
   if (!mindmap) {
     return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
   }
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
 
   if (!member) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };

@@ -2,7 +2,7 @@ import { redirect, notFound } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
-import { mindmaps, projects, workspaceMembers } from "@/db/schema";
+import { mindmaps, mindmapNodes, mindmapEdges, projects, workspaceMembers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
 import { ChevronLeft } from "lucide-react";
 import MindmapCanvas from "@/components/mindmaps/mindmap-canvas";
@@ -20,32 +20,35 @@ export default async function MindmapEditorPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const project = await db.query.projects.findFirst({
-    where: eq(projects.id, projectId),
-  });
+  const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
 
   if (!project) redirect(`/app/${workspaceSlug}/projects`);
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, project.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, project.workspaceId),
+        eq(workspaceMembers.userId, user.id)
+      )
+    )
+    .limit(1);
 
   if (!member) redirect(`/app/${workspaceSlug}`);
 
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, mindmapId),
-    with: { nodes: true, edges: true },
-  });
+  const [[mindmap], nodes, edges] = await Promise.all([
+    db.select().from(mindmaps).where(eq(mindmaps.id, mindmapId)).limit(1),
+    db.select().from(mindmapNodes).where(eq(mindmapNodes.mindmapId, mindmapId)),
+    db.select().from(mindmapEdges).where(eq(mindmapEdges.mindmapId, mindmapId)),
+  ]);
 
   if (!mindmap || mindmap.projectId !== projectId) notFound();
 
   const canEdit =
     member.role === "owner" || member.role === "admin" || member.role === "member";
 
-  const initialNodes = mindmap.nodes.map((n) => ({
+  const initialNodes = nodes.map((n) => ({
     id: n.id,
     mindmapId: n.mindmapId,
     parentNodeId: n.parentNodeId,
@@ -61,7 +64,7 @@ export default async function MindmapEditorPage({ params }: Props) {
     orderInParent: n.orderInParent,
   }));
 
-  const initialEdges = mindmap.edges.map((e) => ({
+  const initialEdges = edges.map((e) => ({
     id: e.id,
     sourceId: e.sourceId,
     targetId: e.targetId,

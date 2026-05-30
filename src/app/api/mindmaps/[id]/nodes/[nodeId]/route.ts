@@ -12,28 +12,28 @@ async function getNodeAndVerifyAccess(
   | { error: NextResponse; mindmap?: never; node?: never }
   | { error?: never; mindmap: typeof mindmaps.$inferSelect; node: typeof mindmapNodes.$inferSelect }
 > {
-  const node = await db.query.mindmapNodes.findFirst({
-    where: eq(mindmapNodes.id, nodeId),
-  });
+  const [node] = await db.select().from(mindmapNodes).where(eq(mindmapNodes.id, nodeId)).limit(1);
 
   if (!node) {
     return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
   }
 
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, node.mindmapId),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, node.mindmapId)).limit(1);
 
   if (!mindmap) {
     return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
   }
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
 
   if (!member) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
@@ -121,10 +121,10 @@ export async function DELETE(
   const result = await getNodeAndVerifyAccess(nodeId, user.id);
   if (result.error) return result.error;
 
-  // Fetch all nodes for this mindmap to find descendants
-  const allNodes = await db.query.mindmapNodes.findMany({
-    where: eq(mindmapNodes.mindmapId, result.node.mindmapId),
-  });
+  const allNodes = await db
+    .select()
+    .from(mindmapNodes)
+    .where(eq(mindmapNodes.mindmapId, result.node.mindmapId));
   const descendantIds = getDescendantIds(nodeId, allNodes);
   const idsToDelete = [nodeId, ...descendantIds];
 
@@ -148,7 +148,6 @@ export async function PATCH(
 
   const body = (await request.json()) as Record<string, unknown>;
 
-  // Legacy action-based API (collapse / expand / link-task)
   if ("action" in body && typeof body.action === "string") {
     const action = body.action;
 
@@ -188,7 +187,6 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
   }
 
-  // Generic field-update API: accepts any subset of allowed fields directly
   const updateData: Record<string, unknown> = { updatedAt: new Date() };
 
   if ("content" in body) updateData["content"] = body.content ?? null;
@@ -202,7 +200,6 @@ export async function PATCH(
   if ("orderInParent" in body && body.orderInParent !== undefined) updateData["orderInParent"] = body.orderInParent;
 
   if (Object.keys(updateData).length === 1) {
-    // Only updatedAt — nothing to update
     return NextResponse.json({ node: result.node });
   }
 

@@ -9,17 +9,19 @@ import {
 import { eq, and } from "drizzle-orm";
 
 async function verifyAccess(mindmapId: string, userId: string) {
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, mindmapId),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, mindmapId)).limit(1);
   if (!mindmap) return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
   if (!member) return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
 
   return { mindmap, member };
@@ -38,19 +40,22 @@ export async function PUT(
   const access = await verifyAccess(id, user.id);
   if ("error" in access) return access.error;
 
-  const comment = await db.query.mindmapNodeComments.findFirst({
-    where: and(
-      eq(mindmapNodeComments.id, commentId),
-      eq(mindmapNodeComments.nodeId, nodeId),
-      eq(mindmapNodeComments.mindmapId, id)
-    ),
-  });
+  const [comment] = await db
+    .select()
+    .from(mindmapNodeComments)
+    .where(
+      and(
+        eq(mindmapNodeComments.id, commentId),
+        eq(mindmapNodeComments.nodeId, nodeId),
+        eq(mindmapNodeComments.mindmapId, id)
+      )
+    )
+    .limit(1);
 
   if (!comment) {
     return NextResponse.json({ error: "Comment not found" }, { status: 404 });
   }
 
-  // Only the author can edit
   if (comment.userId !== user.id) {
     return NextResponse.json({ error: "Forbidden: only the author can edit this comment" }, { status: 403 });
   }
@@ -80,32 +85,37 @@ export async function DELETE(
 
   const { id, nodeId, commentId } = await params;
 
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, id),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, id)).limit(1);
   if (!mindmap) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, user.id)
+      )
+    )
+    .limit(1);
   if (!member) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const comment = await db.query.mindmapNodeComments.findFirst({
-    where: and(
-      eq(mindmapNodeComments.id, commentId),
-      eq(mindmapNodeComments.nodeId, nodeId),
-      eq(mindmapNodeComments.mindmapId, id)
-    ),
-  });
+  const [comment] = await db
+    .select()
+    .from(mindmapNodeComments)
+    .where(
+      and(
+        eq(mindmapNodeComments.id, commentId),
+        eq(mindmapNodeComments.nodeId, nodeId),
+        eq(mindmapNodeComments.mindmapId, id)
+      )
+    )
+    .limit(1);
 
   if (!comment) {
     return NextResponse.json({ error: "Comment not found" }, { status: 404 });
   }
 
-  // Only the author or a workspace admin can delete
   const isAdmin = member.role === "admin" || member.role === "owner";
   if (comment.userId !== user.id && !isAdmin) {
     return NextResponse.json(

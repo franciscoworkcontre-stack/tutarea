@@ -3,20 +3,21 @@ import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { mindmaps, mindmapNodes, workspaceMembers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import Anthropic from "@anthropic-ai/sdk";
 
 async function getMindmapAndVerifyAccess(id: string, userId: string) {
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, id),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, id)).limit(1);
   if (!mindmap) return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
   if (!member) return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
 
   return { mindmap, member };
@@ -24,15 +25,15 @@ async function getMindmapAndVerifyAccess(id: string, userId: string) {
 
 async function getDescendants(mindmapId: string, nodeId: string) {
   const all: (typeof mindmapNodes.$inferSelect)[] = [];
+  const allNodes = await db
+    .select()
+    .from(mindmapNodes)
+    .where(eq(mindmapNodes.mindmapId, mindmapId));
+
   const queue = [nodeId];
   while (queue.length) {
     const parentId = queue.shift()!;
-    const children = await db.query.mindmapNodes.findMany({
-      where: and(
-        eq(mindmapNodes.mindmapId, mindmapId),
-        eq(mindmapNodes.parentNodeId, parentId)
-      ),
-    });
+    const children = allNodes.filter((n) => n.parentNodeId === parentId);
     all.push(...children);
     queue.push(...children.map((c) => c.id));
   }
@@ -58,9 +59,11 @@ export async function POST(
     return NextResponse.json({ error: "nodeId is required" }, { status: 400 });
   }
 
-  const node = await db.query.mindmapNodes.findFirst({
-    where: and(eq(mindmapNodes.id, body.nodeId), eq(mindmapNodes.mindmapId, id)),
-  });
+  const [node] = await db
+    .select()
+    .from(mindmapNodes)
+    .where(and(eq(mindmapNodes.id, body.nodeId), eq(mindmapNodes.mindmapId, id)))
+    .limit(1);
 
   if (!node) {
     return NextResponse.json({ error: "Node not found" }, { status: 404 });
@@ -68,7 +71,6 @@ export async function POST(
 
   const descendants = await getDescendants(id, body.nodeId);
 
-  // Build a readable text representation of the branch
   const childrenOfRoot = descendants.filter((d) => d.parentNodeId === body.nodeId);
   const grandchildren = descendants.filter(
     (d) => d.parentNodeId !== body.nodeId && d.parentNodeId !== null
@@ -86,6 +88,7 @@ export async function POST(
 
   const prompt = `Summarize this branch of a mindmap in ONE concise sentence (max 10 words): ${branchText}`;
 
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const anthropic = new Anthropic();
 
   const message = await anthropic.messages.create({

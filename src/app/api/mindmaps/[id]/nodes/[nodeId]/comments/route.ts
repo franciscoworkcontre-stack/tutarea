@@ -11,17 +11,19 @@ import {
 import { eq, and, asc } from "drizzle-orm";
 
 async function verifyAccess(mindmapId: string, userId: string) {
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, mindmapId),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, mindmapId)).limit(1);
   if (!mindmap) return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
   if (!member) return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
 
   return { mindmap, member };
@@ -40,12 +42,13 @@ export async function GET(
   const access = await verifyAccess(id, user.id);
   if ("error" in access) return access.error;
 
-  const node = await db.query.mindmapNodes.findFirst({
-    where: and(eq(mindmapNodes.id, nodeId), eq(mindmapNodes.mindmapId, id)),
-  });
+  const [node] = await db
+    .select()
+    .from(mindmapNodes)
+    .where(and(eq(mindmapNodes.id, nodeId), eq(mindmapNodes.mindmapId, id)))
+    .limit(1);
   if (!node) return NextResponse.json({ error: "Node not found" }, { status: 404 });
 
-  // Fetch all comments for this node ordered by createdAt ASC
   const comments = await db
     .select({
       id: mindmapNodeComments.id,
@@ -72,7 +75,6 @@ export async function GET(
     )
     .orderBy(asc(mindmapNodeComments.createdAt));
 
-  // Build nested reply structure
   const topLevel = comments.filter((c) => c.parentCommentId === null);
   const replies = comments.filter((c) => c.parentCommentId !== null);
 
@@ -105,9 +107,11 @@ export async function POST(
   const access = await verifyAccess(id, user.id);
   if ("error" in access) return access.error;
 
-  const node = await db.query.mindmapNodes.findFirst({
-    where: and(eq(mindmapNodes.id, nodeId), eq(mindmapNodes.mindmapId, id)),
-  });
+  const [node] = await db
+    .select()
+    .from(mindmapNodes)
+    .where(and(eq(mindmapNodes.id, nodeId), eq(mindmapNodes.mindmapId, id)))
+    .limit(1);
   if (!node) return NextResponse.json({ error: "Node not found" }, { status: 404 });
 
   const body = (await request.json()) as { content: string; parentCommentId?: string };
@@ -116,14 +120,17 @@ export async function POST(
     return NextResponse.json({ error: "Content is required" }, { status: 400 });
   }
 
-  // Validate parentCommentId if provided
   if (body.parentCommentId) {
-    const parent = await db.query.mindmapNodeComments.findFirst({
-      where: and(
-        eq(mindmapNodeComments.id, body.parentCommentId),
-        eq(mindmapNodeComments.nodeId, nodeId)
-      ),
-    });
+    const [parent] = await db
+      .select()
+      .from(mindmapNodeComments)
+      .where(
+        and(
+          eq(mindmapNodeComments.id, body.parentCommentId),
+          eq(mindmapNodeComments.nodeId, nodeId)
+        )
+      )
+      .limit(1);
     if (!parent) {
       return NextResponse.json({ error: "Parent comment not found" }, { status: 404 });
     }
@@ -140,9 +147,7 @@ export async function POST(
     })
     .returning();
 
-  const profile = await db.query.profiles.findFirst({
-    where: eq(profiles.id, user.id),
-  });
+  const [profile] = await db.select().from(profiles).where(eq(profiles.id, user.id)).limit(1);
 
   return NextResponse.json(
     {

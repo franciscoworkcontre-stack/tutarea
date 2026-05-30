@@ -3,20 +3,21 @@ import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { mindmaps, mindmapNodes, workspaceMembers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import Anthropic from "@anthropic-ai/sdk";
 
 async function getMindmapAndVerifyAccess(id: string, userId: string) {
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, id),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, id)).limit(1);
   if (!mindmap) return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
   if (!member) return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
 
   return { mindmap, member };
@@ -58,10 +59,11 @@ export async function POST(
   if ("error" in access) return access.error;
   const { mindmap } = access;
 
-  const nodes = await db.query.mindmapNodes.findMany({
-    where: eq(mindmapNodes.mindmapId, id),
-    orderBy: [mindmapNodes.orderInParent],
-  });
+  const nodes = await db
+    .select()
+    .from(mindmapNodes)
+    .where(eq(mindmapNodes.mindmapId, id))
+    .orderBy(mindmapNodes.orderInParent);
 
   if (nodes.length === 0) {
     return NextResponse.json({ error: "Mindmap has no nodes" }, { status: 422 });
@@ -75,6 +77,7 @@ ${treeText}
 
 Only return the JSON.`;
 
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const anthropic = new Anthropic();
 
   const message = await anthropic.messages.create({
@@ -86,7 +89,6 @@ Only return the JSON.`;
   const firstBlock = message.content[0];
   const rawText = firstBlock?.type === "text" ? firstBlock.text.trim() : "{}";
 
-  // Extract JSON from the response (handle potential markdown code fences)
   const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/) ??
     rawText.match(/(\{[\s\S]*\})/);
   const jsonText = jsonMatch?.[1] ? jsonMatch[1].trim() : rawText;

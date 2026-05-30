@@ -11,20 +11,22 @@ async function getMindmapAndVerifyAccess(
   | { error: NextResponse; mindmap?: never }
   | { error?: never; mindmap: typeof mindmaps.$inferSelect }
 > {
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, id),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, id)).limit(1);
 
   if (!mindmap) {
     return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
   }
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
 
   if (!member) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
@@ -46,9 +48,7 @@ export async function GET(
   const result = await getMindmapAndVerifyAccess(id, user.id);
   if (result.error) return result.error;
 
-  const edges = await db.query.mindmapEdges.findMany({
-    where: eq(mindmapEdges.mindmapId, id),
-  });
+  const edges = await db.select().from(mindmapEdges).where(eq(mindmapEdges.mindmapId, id));
 
   return NextResponse.json({ edges });
 }
@@ -76,14 +76,19 @@ export async function POST(
     return NextResponse.json({ error: "sourceId and targetId required" }, { status: 400 });
   }
 
-  // Verify both nodes belong to this mindmap
   const [sourceNode, targetNode] = await Promise.all([
-    db.query.mindmapNodes.findFirst({
-      where: and(eq(mindmapNodes.id, body.sourceId), eq(mindmapNodes.mindmapId, id)),
-    }),
-    db.query.mindmapNodes.findFirst({
-      where: and(eq(mindmapNodes.id, body.targetId), eq(mindmapNodes.mindmapId, id)),
-    }),
+    db
+      .select()
+      .from(mindmapNodes)
+      .where(and(eq(mindmapNodes.id, body.sourceId), eq(mindmapNodes.mindmapId, id)))
+      .limit(1)
+      .then((r) => r[0]),
+    db
+      .select()
+      .from(mindmapNodes)
+      .where(and(eq(mindmapNodes.id, body.targetId), eq(mindmapNodes.mindmapId, id)))
+      .limit(1)
+      .then((r) => r[0]),
   ]);
 
   if (!sourceNode || !targetNode) {
@@ -96,7 +101,7 @@ export async function POST(
       mindmapId: id,
       sourceId: body.sourceId,
       targetId: body.targetId,
-      isHierarchical: false, // cross-link edges are non-hierarchical
+      isHierarchical: false,
       styleJsonb: body.styleJsonb ?? {},
     })
     .returning();

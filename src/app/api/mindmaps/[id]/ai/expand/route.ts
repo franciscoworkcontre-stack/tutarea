@@ -3,20 +3,21 @@ import { createClient } from "@/lib/supabase/server";
 import { db } from "@/db";
 import { mindmaps, mindmapNodes, workspaceMembers } from "@/db/schema";
 import { eq, and } from "drizzle-orm";
-import Anthropic from "@anthropic-ai/sdk";
 
 async function getMindmapAndVerifyAccess(id: string, userId: string) {
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, id),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, id)).limit(1);
   if (!mindmap) return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
   if (!member) return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
 
   return { mindmap, member };
@@ -42,24 +43,28 @@ export async function POST(
     return NextResponse.json({ error: "nodeId is required" }, { status: 400 });
   }
 
-  const count = body.count ?? 5;
+  const expandCount = body.count ?? 5;
 
-  const node = await db.query.mindmapNodes.findFirst({
-    where: and(eq(mindmapNodes.id, body.nodeId), eq(mindmapNodes.mindmapId, id)),
-  });
+  const [node] = await db
+    .select()
+    .from(mindmapNodes)
+    .where(and(eq(mindmapNodes.id, body.nodeId), eq(mindmapNodes.mindmapId, id)))
+    .limit(1);
 
   if (!node) {
     return NextResponse.json({ error: "Node not found" }, { status: 404 });
   }
 
-  // Fetch siblings for context
   const siblings = node.parentNodeId
-    ? await db.query.mindmapNodes.findMany({
-        where: and(
-          eq(mindmapNodes.mindmapId, id),
-          eq(mindmapNodes.parentNodeId, node.parentNodeId)
-        ),
-      })
+    ? await db
+        .select()
+        .from(mindmapNodes)
+        .where(
+          and(
+            eq(mindmapNodes.mindmapId, id),
+            eq(mindmapNodes.parentNodeId, node.parentNodeId)
+          )
+        )
     : [];
 
   const siblingLabels = siblings
@@ -67,12 +72,11 @@ export async function POST(
     .map((s) => s.label)
     .join(", ");
 
-  const contextNote = siblingLabels
-    ? ` (siblings: ${siblingLabels})`
-    : "";
+  const contextNote = siblingLabels ? ` (siblings: ${siblingLabels})` : "";
 
-  const prompt = `Given this mindmap node: '${node.label}'${contextNote} in the context of mindmap '${mindmap.title}', suggest ${count} specific sub-topics or ideas as children nodes. Return a JSON array of strings: ["subtopic1", "subtopic2", ...]. Only return the JSON array.`;
+  const prompt = `Given this mindmap node: '${node.label}'${contextNote} in the context of mindmap '${mindmap.title}', suggest ${expandCount} specific sub-topics or ideas as children nodes. Return a JSON array of strings: ["subtopic1", "subtopic2", ...]. Only return the JSON array.`;
 
+  const { default: Anthropic } = await import("@anthropic-ai/sdk");
   const anthropic = new Anthropic();
 
   const stream = await anthropic.messages.stream({

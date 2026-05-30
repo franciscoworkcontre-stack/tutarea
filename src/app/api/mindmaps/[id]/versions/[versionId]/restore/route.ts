@@ -11,17 +11,19 @@ import {
 import { eq, and } from "drizzle-orm";
 
 async function getMindmapAndVerifyAccess(id: string, userId: string) {
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, id),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, id)).limit(1);
   if (!mindmap) return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
   if (!member) return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
 
   return { mindmap, member };
@@ -80,9 +82,11 @@ export async function POST(
   if ("error" in access) return access.error;
   const { mindmap } = access;
 
-  const targetVersion = await db.query.mindmapVersions.findFirst({
-    where: and(eq(mindmapVersions.id, versionId), eq(mindmapVersions.mindmapId, id)),
-  });
+  const [targetVersion] = await db
+    .select()
+    .from(mindmapVersions)
+    .where(and(eq(mindmapVersions.id, versionId), eq(mindmapVersions.mindmapId, id)))
+    .limit(1);
 
   if (!targetVersion) {
     return NextResponse.json({ error: "Version not found" }, { status: 404 });
@@ -94,10 +98,9 @@ export async function POST(
     return NextResponse.json({ error: "Invalid snapshot data" }, { status: 422 });
   }
 
-  // Save current state as a new snapshot BEFORE restoring (so the restore can be undone)
   const [currentNodes, currentEdges] = await Promise.all([
-    db.query.mindmapNodes.findMany({ where: eq(mindmapNodes.mindmapId, id) }),
-    db.query.mindmapEdges.findMany({ where: eq(mindmapEdges.mindmapId, id) }),
+    db.select().from(mindmapNodes).where(eq(mindmapNodes.mindmapId, id)),
+    db.select().from(mindmapEdges).where(eq(mindmapEdges.mindmapId, id)),
   ]);
 
   const preRestoreSnapshot: Snapshot = {
@@ -121,10 +124,8 @@ export async function POST(
     createdBy: user.id,
   });
 
-  // Delete all current nodes (edges are CASCADE deleted via FK)
   await db.delete(mindmapNodes).where(eq(mindmapNodes.mindmapId, id));
 
-  // Recreate nodes from snapshot
   let nodesRestored = 0;
   if (snapshot.nodes.length > 0) {
     await db.insert(mindmapNodes).values(
@@ -149,7 +150,6 @@ export async function POST(
     nodesRestored = snapshot.nodes.length;
   }
 
-  // Recreate edges from snapshot
   if (snapshot.edges.length > 0) {
     await db.insert(mindmapEdges).values(
       snapshot.edges.map((e) => ({
@@ -163,7 +163,6 @@ export async function POST(
     );
   }
 
-  // Update mindmap with snapshot data and bump version
   const [updatedMindmap] = await db
     .update(mindmaps)
     .set({

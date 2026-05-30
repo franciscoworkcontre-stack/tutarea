@@ -11,17 +11,19 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 
 async function getMindmapAndVerifyAccess(id: string, userId: string) {
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, id),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, id)).limit(1);
   if (!mindmap) return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
   if (!member) return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
 
   return { mindmap, member };
@@ -40,7 +42,6 @@ export async function GET(
   const access = await getMindmapAndVerifyAccess(id, user.id);
   if ("error" in access) return access.error;
 
-  // Return version list without snapshotJsonb for performance
   const versions = await db
     .select({
       id: mindmapVersions.id,
@@ -70,10 +71,9 @@ export async function POST(
   if ("error" in access) return access.error;
   const { mindmap } = access;
 
-  // Fetch full current state
   const [nodes, edges] = await Promise.all([
-    db.query.mindmapNodes.findMany({ where: eq(mindmapNodes.mindmapId, id) }),
-    db.query.mindmapEdges.findMany({ where: eq(mindmapEdges.mindmapId, id) }),
+    db.select().from(mindmapNodes).where(eq(mindmapNodes.mindmapId, id)),
+    db.select().from(mindmapEdges).where(eq(mindmapEdges.mindmapId, id)),
   ]);
 
   const nextVersion = mindmap.version + 1;
@@ -100,7 +100,6 @@ export async function POST(
     })
     .returning();
 
-  // Increment version on the mindmap
   await db
     .update(mindmaps)
     .set({ version: nextVersion, updatedAt: new Date() })

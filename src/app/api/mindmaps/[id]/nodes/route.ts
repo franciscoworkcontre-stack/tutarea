@@ -44,20 +44,22 @@ async function getMindmapAndVerifyAccess(
   | { error: NextResponse; mindmap?: never }
   | { error?: never; mindmap: typeof mindmaps.$inferSelect }
 > {
-  const mindmap = await db.query.mindmaps.findFirst({
-    where: eq(mindmaps.id, id),
-  });
+  const [mindmap] = await db.select().from(mindmaps).where(eq(mindmaps.id, id)).limit(1);
 
   if (!mindmap) {
     return { error: NextResponse.json({ error: "Not found" }, { status: 404 }) };
   }
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, mindmap.workspaceId),
-      eq(workspaceMembers.userId, userId)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, mindmap.workspaceId),
+        eq(workspaceMembers.userId, userId)
+      )
+    )
+    .limit(1);
 
   if (!member) {
     return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
@@ -79,10 +81,11 @@ export async function GET(
   const result = await getMindmapAndVerifyAccess(id, user.id);
   if (result.error) return result.error;
 
-  const nodes = await db.query.mindmapNodes.findMany({
-    where: eq(mindmapNodes.mindmapId, id),
-    orderBy: [mindmapNodes.orderInParent],
-  });
+  const nodes = await db
+    .select()
+    .from(mindmapNodes)
+    .where(eq(mindmapNodes.mindmapId, id))
+    .orderBy(mindmapNodes.orderInParent);
 
   const tree = buildTree(nodes);
 

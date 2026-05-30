@@ -125,7 +125,7 @@ async function parseTaskWithClaude(text: string): Promise<ParsedTask> {
 async function transcribeVoice(fileId: string): Promise<string> {
   const audioUrl = await getTelegramFileUrl(fileId);
   const audioBuffer = await downloadTelegramFile(audioUrl);
-  const audioFile = new File([new Blob([audioBuffer], { type: "audio/ogg" })], "voice.ogg", { type: "audio/ogg" });
+  const audioFile = new File([new Blob([new Uint8Array(audioBuffer)], { type: "audio/ogg" })], "voice.ogg", { type: "audio/ogg" });
 
   const transcription = await (await getOpenAI()).audio.transcriptions.create({
     file: audioFile,
