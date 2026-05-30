@@ -23,24 +23,26 @@ export default async function DashboardPage({ params }: Props) {
 
   if (!user) redirect("/login");
 
-  const workspace = await db.query.workspaces.findFirst({
-    where: eq(workspaces.slug, slug),
-  });
+  const [workspace] = await db.select().from(workspaces).where(eq(workspaces.slug, slug)).limit(1);
   if (!workspace) redirect("/app");
 
-  const member = await db.query.workspaceMembers.findFirst({
-    where: and(
-      eq(workspaceMembers.workspaceId, workspace.id),
-      eq(workspaceMembers.userId, user.id)
-    ),
-  });
+  const [member] = await db
+    .select()
+    .from(workspaceMembers)
+    .where(
+      and(
+        eq(workspaceMembers.workspaceId, workspace.id),
+        eq(workspaceMembers.userId, user.id)
+      )
+    )
+    .limit(1);
   if (!member) redirect("/app");
 
-  // Load or auto-create dashboards
-  let workspaceDashboards = await db.query.dashboards.findMany({
-    where: eq(dashboards.workspaceId, workspace.id),
-    orderBy: [dashboards.createdAt],
-  });
+  let workspaceDashboards = await db
+    .select()
+    .from(dashboards)
+    .where(eq(dashboards.workspaceId, workspace.id))
+    .orderBy(dashboards.createdAt);
 
   if (workspaceDashboards.length === 0) {
     const inserted = await db
